@@ -12,3 +12,8 @@ docs/
 
 # Dotenv file
 .env
+
+# Local deployments
+broadcast/**/31337/
+
+node_modules

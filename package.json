@@ -1,0 +1,9 @@
+{
+  "name": "@agentcoint/agent-vault-contracts",
+  "version": "0.1.0",
+  "scripts": {},
+  "dependencies": {},
+  "devDependencies": {
+    "@fairmint/c-org-contracts": "^2.4.24"
+  }
+}
