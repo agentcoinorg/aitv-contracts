@@ -18,6 +18,7 @@ contract DeployAgentKey is Script {
 
     function deploy(HelperConfig.AgentKeyConfig memory config) public returns (IAgentKey key, address whitelist) {
         {
+            // buySlopeNum and buySlopeDen are used for the formula in: https://github.com/Fairmint/c-org/blob/781d1ed8d70d733eed57c5e7fff8931b096de0e9/contracts/ContinuousOffering.sol#L495
             bytes memory ctorArgs = abi.encode(
                 0 ether, // initReserve
                 address(0), // currencyAddress
@@ -45,8 +46,8 @@ contract DeployAgentKey is Script {
             config.feeCollector,
             config.feeBasisPoints,
             config.revenueCommitmentBasisPoints,
-            1,
-            0
+            1, // minInvestment
+            0 // minDuration
         );
 
         vm.stopBroadcast();
