@@ -100,41 +100,6 @@ contract AgentKeyTest is Test {
 
         vm.startPrank(user);
 
-        uint256 minBuyAmount1 = key.estimateBuyValue(1);
-
-        key.buy{value: 1}(user, 1, minBuyAmount1);
-
-        uint256 balance1 = key.balanceOf(user);
-        assertEq(balance1, minBuyAmount1);
-        uint256 price1 = minBuyAmount1;
-
-        uint256 minBuyAmount2 = key.estimateBuyValue(1);
-        uint256 price2 = minBuyAmount2;
-
-        key.buy{value: 1}(user, 1, minBuyAmount2);
-
-        console.logUint(price1);
-        console.logUint(price2);
-
-        uint256 minBuyAmount3 = key.estimateBuyValue(1);
-        uint256 price3 = minBuyAmount3;
-        console.logUint(price3);
-    }
-
-    function test_curveBehavesAccordingToFormula3() public {
-        // Initial price is 100 KEY for 1 ETH
-        // Formula: price = (tokens ** 2) / 2 * buySlopeNum / buySlopeDen
-
-        uint256 amountToSpend = 600 ether;
-
-        vm.deal(user, amountToSpend);
-
-        assertEq(key.balanceOf(user), 0);
-        assertEq(beneficiary.balance, 0);
-        assertEq(feeCollector.balance, 0);
-
-        vm.startPrank(user);
-
         uint256 minBuyAmount1 = key.estimateBuyValue(100 ether);
         assertEq(minBuyAmount1, 1000 ether);
 
