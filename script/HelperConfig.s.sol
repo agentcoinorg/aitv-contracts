@@ -14,8 +14,8 @@ contract HelperConfig is Constants, Script {
         string symbol;
         uint256 priceIncrease;
         uint256 investmentReserveBasisPoints;
-        uint feeBasisPoints;
-        uint revenueCommitmentBasisPoints;
+        uint256 feeBasisPoints;
+        uint256 revenueCommitmentBasisPoints;
         address payable beneficiary;
         address control;
         address payable feeCollector;

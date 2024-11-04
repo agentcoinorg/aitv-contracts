@@ -16,9 +16,7 @@ contract DeployAgentKey is Script {
         deploy(helper.getConfig());
     }
 
-    function deploy(
-        HelperConfig.AgentKeyConfig memory config
-    ) public returns (IAgentKey key, address whitelist) {
+    function deploy(HelperConfig.AgentKeyConfig memory config) public returns (IAgentKey key, address whitelist) {
         {
             bytes memory ctorArgs = abi.encode(
                 0 ether, // initReserve
@@ -31,17 +29,17 @@ contract DeployAgentKey is Script {
                 payable(address(0)), // setupFeeRecipient
                 config.name,
                 config.symbol
-            ); 
+            );
 
             vm.startBroadcast();
-            
+
             key = IAgentKey(deployCode("AgentKey.sol:AgentKey", ctorArgs));
         }
-      
+
         whitelist = address(new AgentKeyWhitelist());
-      
+
         key.updateConfig(
-            whitelist, 
+            whitelist,
             config.beneficiary,
             config.control,
             config.feeCollector,

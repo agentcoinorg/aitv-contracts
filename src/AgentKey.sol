@@ -8,13 +8,13 @@ contract AgentKey is DecentralizedAutonomousTrust {
     bool public isStopped;
 
     constructor(
-        uint _initReserve,
+        uint256 _initReserve,
         address _currencyAddress,
-        uint _initGoal,
-        uint _buySlopeNum,
-        uint _buySlopeDen,
-        uint _investmentReserveBasisPoints,
-        uint _setupFee,
+        uint256 _initGoal,
+        uint256 _buySlopeNum,
+        uint256 _buySlopeDen,
+        uint256 _investmentReserveBasisPoints,
+        uint256 _setupFee,
         address payable _setupFeeRecipient,
         string memory _name,
         string memory _symbol
@@ -29,7 +29,7 @@ contract AgentKey is DecentralizedAutonomousTrust {
             _setupFee,
             _setupFeeRecipient,
             _name,
-            _symbol  
+            _symbol
         );
     }
 
@@ -42,15 +42,13 @@ contract AgentKey is DecentralizedAutonomousTrust {
     modifier authorizeTransfer(
         address _from,
         address _to,
-        uint _value,
-        bool _isSell
-    ) // Overrides the modifier in ContinuousOffering
-    {
+        uint256 _value,
+        bool _isSell // Overrides the modifier in ContinuousOffering
+    ) {
         if (isStopped) {
             revert("Contract is stopped");
         }
-        if(address(whitelist) != address(0))
-        {
+        if (address(whitelist) != address(0)) {
             // This is not set for the minting of initialReserve
             whitelist.authorizeTransfer(_from, _to, _value, _isSell);
         }
