@@ -1,5 +1,15 @@
 ## Agent Vault Contracts
 
+### Install
+
+```shell
+nvm use && nvm install
+```
+
+```shell
+yarn
+```
+
 ### Build
 
 ```shell
@@ -19,4 +29,4 @@ $ ./deploy/base-sepolia.sh <BASESCAN_API_KEY>
 ```
 
 ### Deployments
-Base Sepolia: https://sepolia.basescan.org/token/0x462e21229cd5e9b2a86ac8d36ed678e0a2cdcd57
+Base Sepolia: https://sepolia.basescan.org/address/0x0D00FE0cd0a5438CCD72bF14690c0783b5f9100F
