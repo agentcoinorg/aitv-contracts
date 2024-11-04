@@ -33,17 +33,19 @@ contract AgentKey is DecentralizedAutonomousTrust {
         );
     }
 
+    /// @notice Stops the contract and transfers the reserve to the recipient. To be used in case of a migration to a new contract.
     function stopAndTransferReserve(address payable _recipient) external {
         require(msg.sender == beneficiary, "BENEFICIARY_ONLY");
         isStopped = true;
         Address.sendValue(_recipient, address(this).balance);
     }
 
+    /// @dev Overrides the modifier in ContinuousOffering
     modifier authorizeTransfer(
         address _from,
         address _to,
         uint256 _value,
-        bool _isSell // Overrides the modifier in ContinuousOffering
+        bool _isSell
     ) {
         if (isStopped) {
             revert("Contract is stopped");
