@@ -81,7 +81,7 @@ contract AgentKeyTest is Test {
         vm.startPrank(user);
 
         uint256 minBuyAmount1 = key.estimateBuyValue(100 ether);
-        assertEq(minBuyAmount1, 1000 ether);
+        assertEq(minBuyAmount1, 1000 ether); // 1000 KEY tokens for 100 ETH
 
         key.buy{value: 100 ether}(user, 100 ether, minBuyAmount1);
     }
