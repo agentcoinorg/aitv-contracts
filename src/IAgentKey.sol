@@ -37,4 +37,6 @@ interface IAgentKey {
     function feeBasisPoints() external view returns (uint256);
     function transfer(address recipient, uint256 amount) external returns (bool);
     function close() external;
+    function stopAndTransferReserve(address payable _recipient) external;
+    function isStopped() external view returns (bool);
 }

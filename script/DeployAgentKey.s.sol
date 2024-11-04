@@ -20,25 +20,17 @@ contract DeployAgentKey is Script {
         HelperConfig.AgentKeyConfig memory config
     ) public returns (IAgentKey key, address whitelist) {
         {
-            uint256 initReserve = 0 ether;
-            address currencyAddress = address(0);
-            uint256 initGoal = 0;
-            uint256 setupFee = 0;
-            address payable setupFeeRecipient = payable(address(0));
-            string memory name = "Agent Keys";
-            string memory symbol = "KEYS";
-
             bytes memory ctorArgs = abi.encode(
-                initReserve,
-                currencyAddress,
-                initGoal,
-                config.buySlopeNum,
-                config.buySlopeDen,
+                0 ether, // initReserve
+                address(0), // currencyAddress
+                0, // initGoal
+                2, // buySlopeNum
+                50000000 * config.priceIncrease, // buySlopeDen
                 config.investmentReserveBasisPoints,
-                setupFee,
-                setupFeeRecipient,
-                name,
-                symbol
+                0, // setupFee
+                payable(address(0)), // setupFeeRecipient
+                config.name,
+                config.symbol
             ); 
 
             vm.startBroadcast();

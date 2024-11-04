@@ -21,11 +21,12 @@ contract AgentKeyTest is Test {
 
         (key, whitelist) = keyDeployer.deploy(
             HelperConfig.AgentKeyConfig({
-                buySlopeNum: 2,
-                buySlopeDen: 10000 * 1e18,
-                investmentReserveBasisPoints: 9500,
-                feeBasisPoints: 2000,
-                revenueCommitmentBasisPoints: 9000,
+                name: "Agent keys",
+                symbol: "KEY",
+                priceIncrease: 0.0002 * 1e18,
+                investmentReserveBasisPoints: 9000,
+                feeBasisPoints: 5000,
+                revenueCommitmentBasisPoints: 9500,
                 beneficiary: payable(beneficiary),
                 control: control,
                 feeCollector: payable(feeCollector)
@@ -35,9 +36,9 @@ contract AgentKeyTest is Test {
 
     function test_canBuyTokens() public {
         uint amountToSpend = 1 ether;
-        uint expectedBeneficiaryFee = 0.04 ether;
-        uint expectedFeeCollectorFee = 0.01 ether;
-        uint expectedReserve = 0.95 ether;
+        uint expectedBeneficiaryFee = 0.05 ether;
+        uint expectedFeeCollectorFee = 0.05 ether;
+        uint expectedReserve = 0.9 ether;
 
         vm.deal(user, amountToSpend);
 
@@ -58,7 +59,7 @@ contract AgentKeyTest is Test {
 
         uint balance = key.balanceOf(user);
 
-        assertGt(balance, 0);
+        assertGe(balance, minBuyAmount);
         assertEq(key.balanceOf(address(beneficiary)), 0);
         assertEq(key.balanceOf(address(feeCollector)), 0);
 
@@ -69,7 +70,75 @@ contract AgentKeyTest is Test {
         assertEq(key.buybackReserve(), expectedReserve);
     }
 
-    function test_curveBehavesAccordingToFormula() public {
+    function test_curveBehavesAccordingToFormula1() public {
+        // Initial price is 100 KEY for 1 ETH
+        // Formula: price = (tokens ** 2) / 2 * buySlopeNum / buySlopeDen
+
+        uint amountToSpend = 600 ether;
+        
+        vm.deal(user, amountToSpend);
+
+        assertEq(key.balanceOf(user), 0);
+        assertEq(beneficiary.balance, 0);
+        assertEq(feeCollector.balance, 0);
+
+        vm.startPrank(user);
+
+        uint minBuyAmount1 = key.estimateBuyValue(100 ether);
+        assertEq(minBuyAmount1, 1000 ether);
+       
+        key.buy{
+            value: 100 ether
+        }(
+            user, 100 ether, minBuyAmount1
+        );
+    }
+
+    function test_curveBehavesAccordingToFormula2() public {
+        // Initial price is 100 KEY for 1 ETH
+        // Formula: price = (tokens ** 2) / 2 * buySlopeNum / buySlopeDen
+
+        uint amountToSpend = 600 ether;
+        
+        vm.deal(user, amountToSpend);
+
+        assertEq(key.balanceOf(user), 0);
+        assertEq(beneficiary.balance, 0);
+        assertEq(feeCollector.balance, 0);
+
+        vm.startPrank(user);
+
+        uint minBuyAmount1 = key.estimateBuyValue(1);
+       
+        key.buy{
+            value: 1
+        }(
+            user, 1, minBuyAmount1
+        );
+
+        uint balance1 = key.balanceOf(user);
+        assertEq(balance1, minBuyAmount1);
+        uint price1 = minBuyAmount1;
+
+        uint minBuyAmount2 = key.estimateBuyValue(1);
+        uint price2 = minBuyAmount2;
+
+        key.buy{
+            value: 1
+        }(
+            user, 1, minBuyAmount2
+        );
+
+        console.logUint(price1);
+        console.logUint(price2); 
+
+
+        uint minBuyAmount3 = key.estimateBuyValue(1);
+        uint price3 = minBuyAmount3;
+        console.logUint(price3); 
+    }
+
+    function test_curveBehavesAccordingToFormula3() public {
         // Initial price is 100 KEY for 1 ETH
         // Formula: price = (tokens ** 2) / 2 * buySlopeNum / buySlopeDen
 
@@ -127,9 +196,9 @@ contract AgentKeyTest is Test {
 
     function test_priceIncreasesWhenSupplyIncreases() public {
         uint amountToSpend = 1 ether;
-        uint expectedBeneficiaryFee = 0.04 ether;
-        uint expectedFeeCollectorFee = 0.01 ether;
-        uint expectedReserve = 0.95 ether;
+        uint expectedBeneficiaryFee = 0.05 ether;
+        uint expectedFeeCollectorFee = 0.05 ether;
+        uint expectedReserve = 0.9 ether;
 
         vm.deal(user, amountToSpend);
         vm.startPrank(user);
@@ -222,9 +291,9 @@ contract AgentKeyTest is Test {
 
     function test_canSellTokens() public {
         uint amountToSpend = 1 ether;
-        uint expectedBeneficiaryFee = 0.04 ether;
-        uint expectedFeeCollectorFee = 0.01 ether;
-        uint expectedReserve = 0.95 ether;
+        uint expectedBeneficiaryFee = 0.05 ether;
+        uint expectedFeeCollectorFee = 0.05 ether;
+        uint expectedReserve = 0.9 ether;
         // Some of the buybackReserve is left over even after selling all tokens
         // Most likely due to rounding errors or because of the fees
         uint expectedMaxReserveAfterSell = 0.001 ether;
@@ -266,9 +335,9 @@ contract AgentKeyTest is Test {
 
     function test_priceDecreasesWhenSupplyDecreases() public {
         uint amountToSpend = 1 ether;
-        uint expectedBeneficiaryFee = 0.04 ether;
-        uint expectedFeeCollectorFee = 0.01 ether;
-        uint expectedReserve = 0.95 ether;
+        uint expectedBeneficiaryFee = 0.05 ether;
+        uint expectedFeeCollectorFee = 0.05 ether;
+        uint expectedReserve = 0.9 ether;
 
         vm.deal(user, amountToSpend);
         vm.startPrank(user);
@@ -322,8 +391,8 @@ contract AgentKeyTest is Test {
 
     function test_pay() public {
         uint amountToPay = 10 ether;
-        uint revenueFee = amountToPay * 1000 / 10000; // 10%
-        uint expectedReserve = 9 ether;
+        uint revenueFee = amountToPay * 5 / 100; // 5%
+        uint expectedReserve = 9.5 ether;
 
         vm.deal(user, amountToPay);
 
@@ -448,7 +517,7 @@ contract AgentKeyTest is Test {
             payable(control),
             payable(feeCollector),
             0,
-            9000,
+            9500,
             1,
             0
         );
@@ -461,7 +530,7 @@ contract AgentKeyTest is Test {
             payable(control),
             payable(feeCollector),
             0,
-            9000,
+            9500,
             1,
             0
         );
@@ -473,9 +542,107 @@ contract AgentKeyTest is Test {
             payable(control),
             payable(feeCollector),
             0,
-            9000,
+            9500,
             1,
             0
         );
+    }
+
+    function test_contractCanBeStopped() public {
+        vm.prank(beneficiary);
+        key.stopAndTransferReserve(payable(recipient));
+        assertEq(key.isStopped(), true);
+    }
+
+    function test_buysAndSellsAreDisabledWhenContractIsStopped() public {
+        vm.deal(user, 2 ether);
+        vm.prank(user);
+        uint minBuyAmount = key.estimateBuyValue(1 ether);
+
+        key.buy{
+            value: 1 ether
+        }(
+            user, 1 ether, minBuyAmount
+        );
+
+        vm.prank(beneficiary);
+        key.stopAndTransferReserve(payable(recipient));
+
+        vm.prank(user);
+        vm.expectRevert("Contract is stopped");
+        key.buy{
+            value: 1 ether
+        }(
+            user, 1 ether, 1
+        );
+
+        vm.prank(user);
+        vm.expectRevert("PRICE_SLIPPAGE"); // Error is PRICE_SLIPPAGE because the reserve check is done before the stopped check
+        key.sell(
+            payable(user),
+            1 ether,
+            1
+        );
+    }
+
+    function test_reserveIsTransferredAfterStop() public {
+        vm.deal(user, 2 ether);
+        vm.prank(user);
+        uint minBuyAmount = key.estimateBuyValue(1 ether);
+
+        key.buy{
+            value: 1 ether
+        }(
+            user, 1 ether, minBuyAmount
+        );
+
+        uint256 reserveBefore = key.buybackReserve();
+
+        assertGt(reserveBefore, 0);
+        assertEq(address(key).balance, reserveBefore);
+
+        vm.prank(beneficiary);
+        key.stopAndTransferReserve(payable(recipient));
+
+        assertEq(key.buybackReserve(), 0);
+        assertEq(address(key).balance, 0);
+
+        assertEq(recipient.balance, reserveBefore);
+    }
+
+    function test_transfersAreDisabledWhenContractIsStopped() public {
+        vm.deal(user, 2 ether);
+        vm.prank(user);
+        uint minBuyAmount = key.estimateBuyValue(1 ether);
+
+        key.buy{
+            value: 1 ether
+        }(
+            user, 1 ether, minBuyAmount
+        );
+
+        vm.prank(beneficiary);
+        key.stopAndTransferReserve(payable(recipient));
+
+        vm.prank(user);
+        vm.expectRevert("Contract is stopped");
+        key.transfer(makeAddr("new-recipient"), minBuyAmount);
+    }
+
+    function test_onlyBeneficiaryCanStopTheContract() public {
+        assertEq(key.isStopped(), false);
+  
+        vm.prank(user);
+        vm.expectRevert("BENEFICIARY_ONLY");
+        key.stopAndTransferReserve(payable(recipient));
+
+        vm.prank(control);
+        vm.expectRevert("BENEFICIARY_ONLY");
+        key.stopAndTransferReserve(payable(recipient));
+
+        vm.prank(beneficiary);
+        key.stopAndTransferReserve(payable(recipient));
+
+        assertEq(key.isStopped(), true);
     }
 }
