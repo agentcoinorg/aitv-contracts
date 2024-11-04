@@ -4,6 +4,6 @@
   "scripts": {},
   "dependencies": {},
   "devDependencies": {
-    "@fairmint/c-org-contracts": "^2.4.24"
+    "@fairmint/c-org-contracts": "git+https://github.com/Fairmint/c-org#1770aa5d527175a676269ad80f458c46b30456ac"
   }
 }

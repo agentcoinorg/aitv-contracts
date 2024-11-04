@@ -507,10 +507,9 @@
     "@ethersproject/properties" "^5.7.0"
     "@ethersproject/strings" "^5.7.0"
 
-"@fairmint/c-org-contracts@^2.4.24":
+"@fairmint/c-org-contracts@git+https://github.com/Fairmint/c-org#1770aa5d527175a676269ad80f458c46b30456ac":
   version "2.4.24"
-  resolved "https://registry.yarnpkg.com/@fairmint/c-org-contracts/-/c-org-contracts-2.4.24.tgz#b41f53e81b4d579c221492a212aa580a97bd6972"
-  integrity sha512-qvRz2WrdioJdDIe40+deNfOVlYsxTOAkxstHVvcdDGhrsJZwdDTVq0y7jDeFT36OQe0t5z2VFmFZ5qdoCIjC4A==
+  resolved "git+https://github.com/Fairmint/c-org#1770aa5d527175a676269ad80f458c46b30456ac"
   dependencies:
     "@openzeppelin/contracts" "2.5.1"
     "@openzeppelin/contracts-ethereum-package" "2.5.0"

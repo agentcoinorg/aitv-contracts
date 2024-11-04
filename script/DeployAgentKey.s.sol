@@ -16,47 +16,38 @@ contract DeployAgentKey is Script {
         deploy(helper.getConfig());
     }
 
-    function deploy(
-        HelperConfig.AgentKeyConfig memory config
-    ) public returns (IAgentKey key, address whitelist) {
+    function deploy(HelperConfig.AgentKeyConfig memory config) public returns (IAgentKey key, address whitelist) {
         {
-            uint256 initReserve = 0 ether;
-            address currencyAddress = address(0);
-            uint256 initGoal = 0;
-            uint256 setupFee = 0;
-            address payable setupFeeRecipient = payable(address(0));
-            string memory name = "Agent Keys";
-            string memory symbol = "KEYS";
-
+            // buySlopeNum and buySlopeDen are used for the formula in: https://github.com/Fairmint/c-org/blob/781d1ed8d70d733eed57c5e7fff8931b096de0e9/contracts/ContinuousOffering.sol#L495
             bytes memory ctorArgs = abi.encode(
-                initReserve,
-                currencyAddress,
-                initGoal,
-                config.buySlopeNum,
-                config.buySlopeDen,
+                0 ether, // initReserve
+                address(0), // currencyAddress
+                0, // initGoal
+                2, // buySlopeNum
+                50000000 * config.priceIncrease, // buySlopeDen
                 config.investmentReserveBasisPoints,
-                setupFee,
-                setupFeeRecipient,
-                name,
-                symbol
-            ); 
+                0, // setupFee
+                payable(address(0)), // setupFeeRecipient
+                config.name,
+                config.symbol
+            );
 
             vm.startBroadcast();
-            
+
             key = IAgentKey(deployCode("AgentKey.sol:AgentKey", ctorArgs));
         }
-      
+
         whitelist = address(new AgentKeyWhitelist());
-      
+
         key.updateConfig(
-            whitelist, 
+            whitelist,
             config.beneficiary,
             config.control,
             config.feeCollector,
             config.feeBasisPoints,
             config.revenueCommitmentBasisPoints,
-            1,
-            0
+            1, // minInvestment
+            0 // minDuration
         );
 
         vm.stopBroadcast();
