@@ -17,7 +17,7 @@ contract AgentKeyV2 is ERC20VotesUpgradeable, OwnableUpgradeable, UUPSUpgradeabl
         _disableInitializers();
     }
 
-    function initialize(string calldata name, string calldata symbol, address owner, address[] calldata recipients, address[] calldata amounts) public virtual initializer {
+    function initialize(string memory name, string memory symbol, address owner, address[] calldata recipients, uint256[] calldata amounts) external initializer {
         __ERC20_init(name, symbol);
         __ERC20Votes_init();
         __Ownable_init(owner);
