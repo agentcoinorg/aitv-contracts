@@ -28,6 +28,7 @@ contract GeckoV2Migrator is Ownable {
 
     address public immutable geckoV1;
     address public geckoV2;
+    address public airdrop;
 
     bool public hasMigrated;
 
@@ -46,12 +47,12 @@ contract GeckoV2Migrator is Ownable {
 
         hasMigrated = true;
 
-        AirdropClaim airdrop = new AirdropClaim(geckoV1);
+        airdrop = address(new AirdropClaim(geckoV1));
 
         address geckoV2Address = _deployGeckoV2(owner());
 
-        IERC20(geckoV2Address).approve(address(airdrop), airdropAmount);
-        airdrop.deposit(geckoV2Address, airdropAmount);
+        IERC20(geckoV2Address).approve(airdrop, airdropAmount);
+        AirdropClaim(airdrop).deposit(geckoV2Address, airdropAmount);
 
         _createPair();
         _deployLiquidity();

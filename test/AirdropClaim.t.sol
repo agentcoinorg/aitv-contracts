@@ -76,7 +76,7 @@ contract AirdropClaimTest is Test {
     }
 
     function test_nonHolderCanClaimManyForOthers() public {
-                uint256 amount = 100 * 10 ** 18;
+        uint256 amount = 100 * 10 ** 18;
 
         geckoV1.mint(user, amount);
         geckoV1.mint(recipient, amount);
