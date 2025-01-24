@@ -76,13 +76,27 @@ contract GeckoMigrationTest is Test {
         assertGt(geckoV2.balanceOf(user), 0);
     }
 
+    function test_forbidsNonHoldersFromClaimingV2Tokens() public {
+        address otherUser = makeAddr("otherUser");
+
+        _migrate();
+
+        assertEq(geckoV2.balanceOf(recipient), 0);
+
+        vm.startPrank(otherUser);
+        AirdropClaim airdrop = AirdropClaim(migrator.airdrop());
+        airdrop.claim(otherUser);
+
+        assertEq(geckoV2.balanceOf(otherUser), 0);
+    }
+
     function test_canBuyV2TokensAfterMigration() public {
         _migrate();
 
         address user2 = makeAddr("user2");
         vm.deal(user2, 1 ether);
 
-        assertEq(geckoV2.balanceOf(user), 0);
+        assertEq(geckoV2.balanceOf(user2), 0);
 
         IUniswapV2Router02 router = IUniswapV2Router02(uniswapRouter);
 
@@ -92,7 +106,7 @@ contract GeckoMigrationTest is Test {
         console.logAddress(path[0]);
         path[1] = address(geckoV2);
 
-        uint256 amountOutMin = 0.01 ether;
+        uint256 amountOutMin = 0.6 ether;
 
         vm.startPrank(user2);
         router.swapExactETHForTokens{value: amountOutMin}(
@@ -103,6 +117,54 @@ contract GeckoMigrationTest is Test {
         );
 
         assertGt(geckoV2.balanceOf(user2), 0);
+        assertEq(user2.balance, 0.4 ether);
+    }
+
+    function test_canSellV2TokensAfterMigration() public {
+        _migrate();
+
+        address user2 = makeAddr("user2");
+        vm.deal(user2, 1 ether);
+
+        IUniswapV2Router02 router = IUniswapV2Router02(uniswapRouter);
+
+        address[] memory path = new address[](2);
+        path[0] = router.WETH();
+        path[1] = address(geckoV2);
+
+        uint256 amountIn = 1 ether;
+        uint256 amountOutMin = 0.6 ether;
+
+        geckoV2.approve(address(router), amountIn);
+
+        vm.startPrank(user2);
+        router.swapExactETHForTokens{value: amountOutMin}(
+            0,
+            path,
+            user2,
+            block.timestamp
+        );
+
+        assertGt(geckoV2.balanceOf(user2), 0);
+        assertEq(user2.balance, 0.4 ether);
+
+        uint256 tokenBalance = geckoV2.balanceOf(user2);
+
+        geckoV2.approve(uniswapRouter, tokenBalance);
+
+        path[0] = address(geckoV2);
+        path[1] = router.WETH();
+
+        router.swapExactTokensForETH(
+            tokenBalance,
+            0,
+            path,
+            user2,
+            block.timestamp
+        );
+
+        assertEq(geckoV2.balanceOf(user2), 0);
+        assertGt(user2.balance, 0.4 ether);
     }
 
     function _migrate() internal {
