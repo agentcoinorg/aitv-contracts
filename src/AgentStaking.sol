@@ -11,8 +11,6 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
     
     error EmptyAmount();
     error InsufficientStakedBalance();
-    error OutOfBounds();
-    error LockPeriodNotOver();
     error NoLockedWithdrawalsFound();
 
     IERC20 public agentToken;
@@ -27,9 +25,9 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
     mapping(address => LockedWithdrawal[]) private lockedWithdrawals;
     mapping(address => uint256) private lockedWithdrawalStartIndexes;
 
-    event Stake(address indexed user, uint256 amount, uint256 totalStaked);
-    event Unstake(address indexed user, uint256 amount, uint256 unlockTime, uint256 totalStaked);
-    event Claim(address indexed user, uint256 amount, address recipient);
+    event Stake(address indexed account, uint256 amount, uint256 totalStaked);
+    event Unstake(address indexed account, uint256 amount, uint256 unlockTime, uint256 totalStaked);
+    event Claim(address indexed account, uint256 amount, address recipient);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -72,35 +70,34 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
     }
 
     function claim(uint256 count, address recipient) external {
-        if (count > lockedWithdrawals[msg.sender].length) {
-            revert OutOfBounds();
-        }
-
         uint256 start = lockedWithdrawalStartIndexes[msg.sender];
 
         uint256 length = lockedWithdrawals[msg.sender].length;
 
-        uint256 amountToTransfer = 0;
-
-        if (length == 0) {
+        if (start >= length) {
             revert NoLockedWithdrawalsFound();
         }
 
-        for (; start < length; start++) {
+        uint256 end = start + count > length ? length : start + count;
+
+        uint256 amountToTransfer = 0;
+        for (; start < end; start++) {
             if (lockedWithdrawals[msg.sender][start].amount == 0) {
                 revert EmptyAmount();
             }
             if (block.timestamp < lockedWithdrawals[msg.sender][start].lockedUntil) {
-                revert LockPeriodNotOver();
+                break;
             }
             amountToTransfer += lockedWithdrawals[msg.sender][start].amount;
             delete lockedWithdrawals[msg.sender][start];
         }
 
-        lockedWithdrawalStartIndexes[msg.sender] = start;
-        agentToken.safeTransfer(recipient, amountToTransfer);
+        if (amountToTransfer > 0) {
+            lockedWithdrawalStartIndexes[msg.sender] = start;
+            agentToken.safeTransfer(recipient, amountToTransfer);
 
-        emit Claim(msg.sender, amountToTransfer, recipient);
+            emit Claim(msg.sender, amountToTransfer, recipient);
+        }
     }
 
     function getStakedAmount(address account) external view returns (uint256) {
