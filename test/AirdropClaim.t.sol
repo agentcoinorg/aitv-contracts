@@ -23,26 +23,68 @@ contract AirdropClaimTest is Test {
         geckoV1 = new MockedERC20("GeckoV1", "GECKO");
         airdrop = new AirdropClaim(address(geckoV1));
         geckoV2 = new MockedERC20("GeckoV2", "GECKO");
-        geckoV2.mint(address(this), 1_000_000);
-        geckoV2.approve(address(airdrop), 1_000_000);
-        airdrop.deposit(address(geckoV2), 1_000_000);
+        geckoV2.mint(address(this), 1_000_000 * 1e18);
+        geckoV2.approve(address(airdrop), 1_000_000 * 1e18);
+        airdrop.deposit(address(geckoV2), 1_000_000 * 1e18);
+    }
+
+    function test_forbidsDepositingMoreThanOnce() public {
+        geckoV2.mint(address(this), 1_000_000 * 1e18);
+        geckoV2.approve(address(airdrop), 1_000_000 * 1e18);
+
+        vm.expectRevert(AirdropClaim.AlreadyDeposited.selector);
+        airdrop.deposit(address(geckoV2), 1_000_000 * 1e18);
     }
 
     function test_canClaim() public {
-        uint256 amount = 100 * 10 ** 18;
+        uint256 amount = 100 * 1e18;
 
-        geckoV1.mint(recipient, amount);
+        geckoV1.mint(user, amount);
 
-        assertEq(geckoV2.balanceOf(recipient), 0);
+        assertEq(geckoV2.balanceOf(user), 0);
+
+        vm.prank(user);
+        airdrop.claim(user);
+
+        assertEq(geckoV2.balanceOf(user), 1_000_000 * 1e18);
+    }
+
+    function test_claimingMultipleTimesResultsInNoBenefit() public {
+        uint256 amount1 = 100 * 1e18;
+        uint256 amount2 = 50 * 1e18;
+
+        geckoV1.mint(user, amount1);
+        geckoV1.mint(otherUser, amount2);
+
+        vm.prank(user);
+        airdrop.claim(user);
+        airdrop.claim(user);
+    
+        assertEq(geckoV2.balanceOf(user), 1_000_000 * 1e18 * amount1 / (amount1 + amount2));
+    }
+
+    function test_multipleUsersCanClaim() public {
+        uint256 amount1 = 100 * 1e18;
+        uint256 amount2 = 50 * 1e18;
+
+        geckoV1.mint(user, amount1);
+        geckoV1.mint(otherUser, amount2);
+
+        assertEq(geckoV2.balanceOf(user), 0);
+        assertEq(geckoV2.balanceOf(otherUser), 0);
+
+        vm.prank(user);
+        airdrop.claim(user);
 
         vm.prank(recipient);
-        airdrop.claim(recipient);
+        airdrop.claim(otherUser);
 
-        assertGt(geckoV2.balanceOf(recipient), 0);
+        assertEq(geckoV2.balanceOf(user), 1_000_000 * 1e18 * amount1 / (amount1 + amount2));
+        assertEq(geckoV2.balanceOf(otherUser), 1_000_000 * 1e18 * amount2 / (amount1 + amount2));
     }
 
     function test_canClaimForRecipient() public {
-        uint256 amount = 100 * 10 ** 18;
+        uint256 amount = 100 * 1e18;
 
         geckoV1.mint(recipient, amount);
 
@@ -52,14 +94,24 @@ contract AirdropClaimTest is Test {
         airdrop.claim(recipient);
 
         assertEq(geckoV2.balanceOf(user), 0);
-        assertGt(geckoV2.balanceOf(recipient), 0);
+        assertEq(geckoV2.balanceOf(recipient), 1_000_000 * 1e18);
+    }
+
+    function test_nonHolderClaimingDoesNotGetTokens() public {
+        assertEq(geckoV2.balanceOf(otherUser), 0);
+
+        vm.prank(otherUser);
+        airdrop.claim(otherUser);
+
+        assertEq(geckoV2.balanceOf(otherUser), 0);
     }
 
     function test_canClaimMany() public {
-        uint256 amount = 100 * 10 ** 18;
+        uint256 amount1 = 100 * 1e18;
+        uint256 amount2 = 50 * 1e18;
 
-        geckoV1.mint(user, amount);
-        geckoV1.mint(recipient, amount);
+        geckoV1.mint(user, amount1);
+        geckoV1.mint(recipient, amount2);
 
         assertEq(geckoV2.balanceOf(user), 0);
         assertEq(geckoV2.balanceOf(recipient), 0);
@@ -71,15 +123,16 @@ contract AirdropClaimTest is Test {
         vm.prank(user);
         airdrop.multiClaim(addresses);
 
-        assertGt(geckoV2.balanceOf(user), 0);
-        assertGt(geckoV2.balanceOf(recipient), 0);
+        assertEq(geckoV2.balanceOf(user), 1_000_000 * 1e18 * amount1 / (amount1 + amount2));
+        assertEq(geckoV2.balanceOf(recipient), 1_000_000 * 1e18 * amount2 / (amount1 + amount2));
     }
 
     function test_nonHolderCanClaimManyForOthers() public {
-        uint256 amount = 100 * 10 ** 18;
+        uint256 amount1 = 100 * 1e18;
+        uint256 amount2 = 50 * 1e18;
 
-        geckoV1.mint(user, amount);
-        geckoV1.mint(recipient, amount);
+        geckoV1.mint(user, amount1);
+        geckoV1.mint(recipient, amount2);
 
         assertEq(geckoV2.balanceOf(user), 0);
         assertEq(geckoV2.balanceOf(recipient), 0);
@@ -91,8 +144,8 @@ contract AirdropClaimTest is Test {
         vm.prank(otherUser);
         airdrop.multiClaim(addresses);
 
-        assertGt(geckoV2.balanceOf(user), 0);
-        assertGt(geckoV2.balanceOf(recipient), 0);
+        assertEq(geckoV2.balanceOf(user), 1_000_000 * 1e18 * amount1 / (amount1 + amount2));
+        assertEq(geckoV2.balanceOf(recipient), 1_000_000 * 1e18 * amount2 / (amount1 + amount2));
     }
 }
 

@@ -11,20 +11,18 @@ contract AirdropClaim {
 
     event Claim(address indexed recipient, address claimer, uint256 fromBalance, uint256 amountClaimed);
 
-    IERC20 public fromToken;
+    IERC20 public immutable fromToken;
     IERC20 public toToken;
 
     uint256 public totalAmountForClaim;
 
     mapping(address => bool) public claimed;
 
-    constructor(
-        address _fromToken
-    ) {
+    constructor(address _fromToken) {
         fromToken = IERC20(_fromToken);
     }
 
-    function deposit(address _toToken, uint256 _totalAmountForClaim) public {
+    function deposit(address _toToken, uint256 _totalAmountForClaim) external {
         if (totalAmountForClaim != 0) {
             revert AlreadyDeposited();
         }
