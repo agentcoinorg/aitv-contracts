@@ -23,8 +23,8 @@ contract GeckoV2Migrator is Ownable {
     uint256 public immutable agentcoinDaoAmount;
     uint256 public immutable airdropAmount;
     uint256 public immutable poolAmount;
-    string public constant name = "Gecko";
-    string public constant symbol = "GECKO";
+    string public name;
+    string public symbol;
 
     address public immutable geckoV1;
     address public geckoV2;
@@ -32,7 +32,9 @@ contract GeckoV2Migrator is Ownable {
 
     bool public hasMigrated;
 
-    constructor(address owner, uint256 _agentCoinDaoAmount, uint256 _airdropAmount, uint256 _poolAmount, address _geckoV1, address _uniswapRouter) Ownable(owner) {
+    constructor(address owner, string memory _name, string memory _symbol, uint256 _agentCoinDaoAmount, uint256 _airdropAmount, uint256 _poolAmount, address _geckoV1, address _uniswapRouter) Ownable(owner) {
+        name = _name;
+        symbol = _symbol;
         agentcoinDaoAmount = _agentCoinDaoAmount;
         airdropAmount = _airdropAmount;
         poolAmount = _poolAmount;

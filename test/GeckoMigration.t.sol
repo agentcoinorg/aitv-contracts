@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {DeployAgentKey} from "../script/DeployAgentKey.s.sol";
 import {IAgentKey} from "../src/IAgentKey.sol";
@@ -28,9 +29,9 @@ contract GeckoMigrationTest is Test {
 
     address agentCoinDao = makeAddr("agentCoinDao");
     address uniswapRouter;
-    uint256 agentCoinDaoAmount = 1_000_000;
-    uint256 airdropAmount = 1_000_000;
-    uint256 poolAmount = 8_000_000;
+    uint256 agentCoinDaoAmount = 1_000_000 * 1e18;
+    uint256 airdropAmount = 2_500_000 * 1e18;
+    uint256 poolAmount = 6_500_000 * 1e18;
 
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
@@ -55,7 +56,9 @@ contract GeckoMigrationTest is Test {
 
         uniswapRouter = vm.envAddress("BASE_UNISWAP_ROUTER");
 
-        migrator = new GeckoV2Migrator(agentCoinDao, agentCoinDaoAmount, airdropAmount, poolAmount, address(key), uniswapRouter);
+        string memory name = "Gecko";
+        string memory symbol = "GECKO";
+        migrator = new GeckoV2Migrator(agentCoinDao, name, symbol, agentCoinDaoAmount, airdropAmount, poolAmount, address(key), uniswapRouter);
 
         geckoV1 = key;
     }
@@ -64,24 +67,70 @@ contract GeckoMigrationTest is Test {
         _migrate();
     }
 
+    function test_forbidsMigratingMoreThanOnce() public {
+        _migrate();
+
+        vm.startPrank(agentCoinDao);        
+        vm.expectRevert(GeckoV2Migrator.AlreadyMigrated.selector);
+        migrator.migrate();
+    }
+
+    function test_forbidsNonOwnerFromMigrating() public {
+        vm.startPrank(agentCoinDao);        
+        geckoV1.stopAndTransferReserve(payable(address(migrator)));
+        vm.stopPrank();
+
+        vm.startPrank(makeAddr("anon"));
+
+        vm.expectPartialRevert(Ownable.OwnableUnauthorizedAccount.selector);
+        migrator.migrate();
+    }
+
     function test_canClaimV2TokensAfterMigration() public {
         _migrate();
 
         assertEq(geckoV2.balanceOf(user), 0);
+
+        uint256 v1Balance = geckoV1.balanceOf(user);
+
+        vm.startPrank(user);
+        AirdropClaim airdrop = AirdropClaim(migrator.airdrop());
+        airdrop.claim(user);
+
+        assertEq(geckoV2.balanceOf(user), airdropAmount * v1Balance / geckoV1.totalSupply());
+    }
+
+    function test_multipleUsersCanClaimV2TokensAfterMigration() public {
+        _migrate();
+
+        address user2 = makeAddr("user2");
+
+        assertEq(geckoV2.balanceOf(user), 0);
+        assertEq(geckoV2.balanceOf(user2), 0);
+
+
+        uint256 u1V1Balance = geckoV1.balanceOf(user);
+        uint256 u2V1Balance = geckoV1.balanceOf(user2);
 
         vm.startPrank(user);
         AirdropClaim airdrop = AirdropClaim(migrator.airdrop());
         airdrop.claim(user);
 
         assertGt(geckoV2.balanceOf(user), 0);
+
+        vm.startPrank(user2);
+        airdrop.claim(user2);
+
+        assertEq(geckoV2.balanceOf(user), airdropAmount * u1V1Balance / geckoV1.totalSupply());
+        assertEq(geckoV2.balanceOf(user2), airdropAmount * u2V1Balance / geckoV1.totalSupply());
     }
 
-    function test_forbidsNonHoldersFromClaimingV2Tokens() public {
+    function test_nonHoldersClaimingV2TokensDontGetTokens() public {
         address otherUser = makeAddr("otherUser");
 
         _migrate();
 
-        assertEq(geckoV2.balanceOf(recipient), 0);
+        assertEq(geckoV2.balanceOf(otherUser), 0);
 
         vm.startPrank(otherUser);
         AirdropClaim airdrop = AirdropClaim(migrator.airdrop());
@@ -93,10 +142,10 @@ contract GeckoMigrationTest is Test {
     function test_canBuyV2TokensAfterMigration() public {
         _migrate();
 
-        address user2 = makeAddr("user2");
-        vm.deal(user2, 1 ether);
+        address user3 = makeAddr("user3");
+        vm.deal(user3, 1 ether);
 
-        assertEq(geckoV2.balanceOf(user2), 0);
+        assertEq(geckoV2.balanceOf(user3), 0);
 
         IUniswapV2Router02 router = IUniswapV2Router02(uniswapRouter);
 
@@ -108,16 +157,16 @@ contract GeckoMigrationTest is Test {
 
         uint256 amountOutMin = 0.6 ether;
 
-        vm.startPrank(user2);
+        vm.startPrank(user3);
         router.swapExactETHForTokens{value: amountOutMin}(
             0,
             path,
-            user2,
+            user3,
             block.timestamp
         );
 
-        assertGt(geckoV2.balanceOf(user2), 0);
-        assertEq(user2.balance, 0.4 ether);
+        assertGt(geckoV2.balanceOf(user3), 0);
+        assertEq(user3.balance, 0.4 ether);
     }
 
     function test_canSellV2TokensAfterMigration() public {
@@ -164,17 +213,24 @@ contract GeckoMigrationTest is Test {
         );
 
         assertEq(geckoV2.balanceOf(user2), 0);
-        assertGt(user2.balance, 0.4 ether);
+        assertGt(user2.balance, 0.99 ether);
     }
 
     function _migrate() internal {
-        _buyV1Tokens();
+        address user2 = makeAddr("user2");
+
+        uint256 user1V1Amount = _buyV1Tokens(user, 1 ether);
+        uint256 user2V1Amount = _buyV1Tokens(user2, 2 ether);
         
-        assertGt(geckoV1.totalSupply(), 0);
-        assertGt(geckoV1.balanceOf(user), 0);
+        assertEq(geckoV1.totalSupply(), user1V1Amount + user2V1Amount);
+        assertEq(geckoV1.balanceOf(user), user1V1Amount);
+        assertEq(geckoV1.balanceOf(user2), user2V1Amount);
+
+        uint256 curveReserve = address(geckoV1).balance;
 
         vm.startPrank(agentCoinDao);        
         geckoV1.stopAndTransferReserve(payable(address(migrator)));
+
         migrator.migrate();
 
         assertEq(geckoV1.isStopped(), true);
@@ -184,16 +240,16 @@ contract GeckoMigrationTest is Test {
         assertNotEq(migrator.airdrop(), address(0));
 
         geckoV2 = IERC20(migrator.geckoV2());
-        assertGt(geckoV2.totalSupply(), 0);
-
-        AirdropClaim airdrop = AirdropClaim(migrator.airdrop());
-        assertEq(geckoV2.balanceOf(address(airdrop)), airdropAmount);
+        assertEq(geckoV2.totalSupply(), agentCoinDaoAmount + poolAmount + airdropAmount);
+        assertEq(geckoV2.balanceOf(agentCoinDao), agentCoinDaoAmount);
+        assertEq(geckoV2.balanceOf(migrator.airdrop()), airdropAmount);
 
         assertEq(geckoV2.balanceOf(user), 0);
+        assertEq(geckoV2.balanceOf(user2), 0);
 
         (uint112 reserveA, uint112 reserveB, uint totalLiquidity) = _getLiquidity(address(geckoV2), IUniswapV2Router02(uniswapRouter).WETH());
-        assertGt(reserveA, 0);
-        assertGt(reserveB, 0);
+        assertEq(reserveA, poolAmount);
+        assertEq(reserveB, curveReserve);
         assertGt(totalLiquidity, 0);
     }
 
@@ -210,17 +266,19 @@ contract GeckoMigrationTest is Test {
         totalLiquidity = totalSupply;
     }
 
-    function _buyV1Tokens() internal {
-        uint256 amountToSpend = 10 ether;
+    function _buyV1Tokens(address account, uint256 amountInEth) internal returns(uint256) {
+        vm.deal(account, amountInEth);
 
-        vm.deal(user, amountToSpend);
+        vm.startPrank(account);
 
-        vm.startPrank(user);
-
-        uint256 minBuyAmount = geckoV1.estimateBuyValue(amountToSpend);
+        uint256 minBuyAmount = geckoV1.estimateBuyValue(amountInEth);
         assertGt(minBuyAmount, 0);
 
-        geckoV1.buy{value: amountToSpend}(user, amountToSpend, minBuyAmount);
+        geckoV1.buy{value: amountInEth}(account, amountInEth, minBuyAmount);
+
+        assertGt(geckoV1.balanceOf(account), 0);
+
+        return geckoV1.balanceOf(account);
     }
 
     function _deployAgentKey(address _owner) internal returns(address) {
