@@ -29,7 +29,9 @@ contract GeckoMigrationTest is Test {
 
     address agentCoinDao = makeAddr("agentCoinDao");
     address uniswapRouter;
-    uint256 agentCoinDaoAmount = 1_000_000 * 1e18;
+    address agentWallet = makeAddr("agentWallet");
+    uint256 agentAmount = 300_000 * 1e18;
+    uint256 daoAmount = 700_000 * 1e18;
     uint256 airdropAmount = 2_500_000 * 1e18;
     uint256 poolAmount = 6_500_000 * 1e18;
 
@@ -58,7 +60,7 @@ contract GeckoMigrationTest is Test {
 
         string memory name = "Gecko";
         string memory symbol = "GECKO";
-        migrator = new GeckoV2Migrator(agentCoinDao, name, symbol, agentCoinDaoAmount, airdropAmount, poolAmount, address(key), uniswapRouter);
+        migrator = new GeckoV2Migrator(agentCoinDao, name, symbol, agentWallet, daoAmount, agentAmount, airdropAmount, poolAmount, address(key), uniswapRouter);
 
         geckoV1 = key;
     }
@@ -240,8 +242,9 @@ contract GeckoMigrationTest is Test {
         assertNotEq(migrator.airdrop(), address(0));
 
         geckoV2 = IERC20(migrator.geckoV2());
-        assertEq(geckoV2.totalSupply(), agentCoinDaoAmount + poolAmount + airdropAmount);
-        assertEq(geckoV2.balanceOf(agentCoinDao), agentCoinDaoAmount);
+        assertEq(geckoV2.totalSupply(), daoAmount + agentAmount + poolAmount + airdropAmount);
+        assertEq(geckoV2.balanceOf(agentCoinDao), daoAmount);
+        assertEq(geckoV2.balanceOf(agentWallet), agentAmount);
         assertEq(geckoV2.balanceOf(migrator.airdrop()), airdropAmount);
 
         assertEq(geckoV2.balanceOf(user), 0);

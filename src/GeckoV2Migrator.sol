@@ -20,9 +20,11 @@ contract GeckoV2Migrator is Ownable {
 
     IUniswapV2Router02 public immutable uniswapRouter;
 
-    uint256 public immutable agentcoinDaoAmount;
+    uint256 public immutable agentAmount;
+    uint256 public immutable daoAmount;
     uint256 public immutable airdropAmount;
     uint256 public immutable poolAmount;
+    address public immutable agentWalletAddress;
     string public name;
     string public symbol;
 
@@ -32,10 +34,12 @@ contract GeckoV2Migrator is Ownable {
 
     bool public hasMigrated;
 
-    constructor(address owner, string memory _name, string memory _symbol, uint256 _agentCoinDaoAmount, uint256 _airdropAmount, uint256 _poolAmount, address _geckoV1, address _uniswapRouter) Ownable(owner) {
+    constructor(address owner, string memory _name, string memory _symbol, address _agentWalletAddress, uint256 _daoAmount, uint256 _agentAmount, uint256 _airdropAmount, uint256 _poolAmount, address _geckoV1, address _uniswapRouter) Ownable(owner) {
         name = _name;
         symbol = _symbol;
-        agentcoinDaoAmount = _agentCoinDaoAmount;
+        agentWalletAddress = _agentWalletAddress;
+        daoAmount = _daoAmount;
+        agentAmount = _agentAmount;
         airdropAmount = _airdropAmount;
         poolAmount = _poolAmount;
         geckoV1 = _geckoV1;
@@ -67,13 +71,15 @@ contract GeckoV2Migrator is Ownable {
 
         AgentKeyV2 implementation = new AgentKeyV2();
 
-        address[] memory recipients = new address[](2);
+        address[] memory recipients = new address[](3);
         recipients[0] = agentcoinDao;
-        recipients[1] = address(this);
+        recipients[1] = agentWalletAddress;
+        recipients[2] = address(this);
 
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = agentcoinDaoAmount;
-        amounts[1] = poolAmount + airdropAmount;
+        uint256[] memory amounts = new uint256[](3);
+        amounts[0] = daoAmount;
+        amounts[1] = agentAmount;
+        amounts[2] = poolAmount + airdropAmount;
 
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(implementation), abi.encodeCall(AgentKeyV2.initialize, (name, symbol, agentcoinDao, recipients, amounts))
