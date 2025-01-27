@@ -88,6 +88,81 @@ contract GeckoMigrationTest is Test {
         migrator.migrate();
     }
 
+    function test_forbidsTransferringV1TokensBeforeMigration() public {
+        vm.startPrank(user);
+
+        vm.expectRevert("TRANSFERS_DISABLED");
+        geckoV1.transfer(recipient, 1 * 1e18);
+    }
+
+    function test_forbidsTransferringV1TokensAfterMigration() public {
+        _migrate();
+      
+        vm.startPrank(user);
+        vm.expectRevert("Contract is stopped");
+        geckoV1.transfer(recipient, 1 * 1e18);
+    }
+
+    function test_allowsBuyingV1TokensBeforeMigration() public {
+        uint256 amountToSpend = 1 ether;
+        vm.deal(user, amountToSpend);
+       
+        uint256 startTokenBalance = geckoV1.balanceOf(user);
+
+        vm.startPrank(user);
+
+        uint256 minBuyAmount = geckoV1.estimateBuyValue(amountToSpend);
+        assertGt(minBuyAmount, 0);
+
+        geckoV1.buy{value: amountToSpend}(user, amountToSpend, minBuyAmount);
+
+        assertGt(geckoV1.balanceOf(user), startTokenBalance);
+    }
+
+    function test_forbidsBuyingV1TokensAfterMigration() public {
+        uint256 amountToSpend = 1 ether;
+        vm.deal(user, amountToSpend);
+
+        _migrate();
+      
+        uint256 startTokenBalance = geckoV1.balanceOf(user);
+
+        vm.startPrank(user);
+    
+        uint256 minBuyAmount = geckoV1.estimateBuyValue(amountToSpend);
+        assertGt(minBuyAmount, 0);
+
+        vm.expectRevert(); // Out of funds error since the reserve is transferred to the migrator
+        geckoV1.buy{value: amountToSpend}(user, amountToSpend, minBuyAmount);
+    }
+
+    function test_allowsSellingV1TokensBeforeMigration() public {
+        _buyV1Tokens(user, 1 ether);
+        
+        uint256 amountToSell = geckoV1.balanceOf(user);
+       
+        vm.startPrank(user);
+    
+        geckoV1.sell(payable(user), amountToSell, 1);
+
+        uint256 balance = geckoV1.balanceOf(user);
+
+        assertEq(balance, 0);
+    }
+
+    function test_forbidsSellingV1TokensAfterMigration() public {
+        _migrate();
+      
+        uint256 amountToSell = geckoV1.balanceOf(user);
+
+        assertGt(amountToSell, 0);
+     
+        vm.startPrank(user);
+    
+        vm.expectRevert("PRICE_SLIPPAGE"); // Price slippage error since the reserve is transferred to the migrator
+        geckoV1.sell(payable(user), amountToSell, 1);
+    }
+
     function test_canClaimV2TokensAfterMigration() public {
         _migrate();
 
