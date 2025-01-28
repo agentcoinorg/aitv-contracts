@@ -6,10 +6,10 @@ import {ERC20VotesUpgradeable} from
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-/// @title Agent key v2 Token
-/// @notice The following is a version 2 ERC20 token contract for the agent keys
+/// @title Agent token contract version 2
+/// @notice The following is a version 2 ERC20 token contract for the agent tokens
 /// @dev It is upgradable and has snapshot functionality
-contract AgentKeyV2 is ERC20VotesUpgradeable, OwnableUpgradeable, UUPSUpgradeable {
+contract AgentTokenV2 is ERC20VotesUpgradeable, OwnableUpgradeable, UUPSUpgradeable {
     error LengthMismatch();
 
     /// @custom:oz-upgrades-unsafe-allow constructor

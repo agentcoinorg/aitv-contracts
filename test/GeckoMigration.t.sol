@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity 0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -11,7 +11,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {DeployAgentKey} from "../script/DeployAgentKey.s.sol";
 import {IAgentKey} from "../src/IAgentKey.sol";
-import {AgentKeyV2} from "../src/AgentKeyV2.sol";
+import {AgentTokenV2} from "../src/AgentTokenV2.sol";
 import {AgentStaking} from "../src/AgentStaking.sol";
 import {AirdropClaim} from "../src/AirdropClaim.sol";
 import {GeckoV2Migrator} from "../src/GeckoV2Migrator.sol";
@@ -60,7 +60,7 @@ contract GeckoMigrationTest is Test {
 
         string memory name = "Gecko";
         string memory symbol = "GECKO";
-        migrator = new GeckoV2Migrator(agentCoinDao, name, symbol, agentWallet, daoAmount, agentAmount, airdropAmount, poolAmount, address(key), uniswapRouter);
+        migrator = new GeckoV2Migrator(agentCoinDao, name, symbol, agentCoinDao, agentWallet, daoAmount, agentAmount, airdropAmount, poolAmount, address(key), uniswapRouter);
 
         geckoV1 = key;
     }
@@ -134,6 +134,8 @@ contract GeckoMigrationTest is Test {
 
         vm.expectRevert(); // Out of funds error since the reserve is transferred to the migrator
         geckoV1.buy{value: amountToSpend}(user, amountToSpend, minBuyAmount);
+
+        assertEq(geckoV1.balanceOf(user), startTokenBalance);
     }
 
     function test_allowsSellingV1TokensBeforeMigration() public {
@@ -357,24 +359,5 @@ contract GeckoMigrationTest is Test {
         assertGt(geckoV1.balanceOf(account), 0);
 
         return geckoV1.balanceOf(account);
-    }
-
-    function _deployAgentKey(address _owner) internal returns(address) {
-        string memory name = "AgentKey";
-        string memory symbol = "KEY";
-
-        AgentKeyV2 implementation = new AgentKeyV2();
-
-        address[] memory recipients = new address[](1);
-        recipients[0] = _owner;
-
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 10_000_000;
-
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation), abi.encodeCall(AgentKeyV2.initialize, (name, symbol, _owner, recipients, amounts))
-        );
-
-        return address(proxy);
     }
 }

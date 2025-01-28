@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity 0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {AgentKeyV2} from "../src/AgentKeyV2.sol";
+import {AgentTokenV2} from "../src/AgentTokenV2.sol";
 import {AirdropClaim} from "../src/AirdropClaim.sol";
 
 contract AirdropClaimTest is Test {

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity 0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {AgentKeyV2} from "../src/AgentKeyV2.sol";
+import {AgentTokenV2} from "../src/AgentTokenV2.sol";
 import {AgentStaking} from "../src/AgentStaking.sol";
 
 contract AgentStakingTest is Test {
@@ -421,7 +421,7 @@ contract AgentStakingTest is Test {
         string memory name = "AgentKey";
         string memory symbol = "KEY";
 
-        AgentKeyV2 implementation = new AgentKeyV2();
+        AgentTokenV2 implementation = new AgentTokenV2();
 
         address[] memory recipients = new address[](1);
         recipients[0] = _owner;
@@ -430,7 +430,7 @@ contract AgentStakingTest is Test {
         amounts[0] = 10_000_000 * 1e18;
 
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation), abi.encodeCall(AgentKeyV2.initialize, (name, symbol, _owner, recipients, amounts))
+            address(implementation), abi.encodeCall(AgentTokenV2.initialize, (name, symbol, _owner, recipients, amounts))
         );
 
         return address(proxy);
