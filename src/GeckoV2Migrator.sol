@@ -9,6 +9,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {AgentTokenV2} from "./AgentTokenV2.sol";
 import {AirdropClaim} from "./AirdropClaim.sol";
+import {IAgentKey} from "./IAgentKey.sol";
 
 
 /// @title GeckoV2Migrator
@@ -23,6 +24,7 @@ contract GeckoV2Migrator is Ownable {
     error NoEthToDeploy();
     error NoTokensToDeploy();
     error AlreadyMigrated();
+    error V1NotStopped();
 
     event LiquidityPoolCreated(address pair);
 
@@ -75,6 +77,10 @@ contract GeckoV2Migrator is Ownable {
     function migrate() external onlyOwner {
         if (hasMigrated) {
             revert AlreadyMigrated();
+        }
+
+        if (!IAgentKey(geckoV1).isStopped()) { 
+            revert V1NotStopped();
         }
 
         hasMigrated = true;

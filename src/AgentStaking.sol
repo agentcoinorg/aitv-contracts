@@ -34,7 +34,7 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
     mapping(address => uint256) private withdrawalQueueStartIndexes;
 
     event Stake(address indexed account, uint256 amount, uint256 totalStaked);
-    event Unstake(address indexed account, uint256 amount, uint256 unlockTime, uint256 totalStaked);
+    event Unstake(address indexed account, uint256 amount, uint256 unlocksAt, uint256 totalStaked);
     event Claim(address indexed account, uint256 amount, address recipient);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -78,8 +78,10 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
         uint256 totalStaked = stakes[msg.sender] - amount; 
         stakes[msg.sender] = totalStaked;
 
-        withdrawalQueue[msg.sender].push(LockedWithdrawal(amount, block.timestamp + UNLOCK_TIME));
-        emit Unstake(msg.sender, amount, block.timestamp + UNLOCK_TIME, totalStaked);
+        uint256 unlocksAt = block.timestamp + UNLOCK_TIME;
+
+        withdrawalQueue[msg.sender].push(LockedWithdrawal(amount, unlocksAt));
+        emit Unstake(msg.sender, amount, unlocksAt, totalStaked);
     }
 
     /// @notice Claim unlocked agent tokens

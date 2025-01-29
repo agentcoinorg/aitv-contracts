@@ -69,6 +69,12 @@ contract GeckoMigrationTest is Test {
         _migrate();
     }
 
+    function test_forbidsMigrationIfV1NotStopped() public {
+        vm.startPrank(agentCoinDao);        
+        vm.expectRevert(GeckoV2Migrator.V1NotStopped.selector);
+        migrator.migrate();
+    }
+
     function test_forbidsMigratingMoreThanOnce() public {
         _migrate();
 
