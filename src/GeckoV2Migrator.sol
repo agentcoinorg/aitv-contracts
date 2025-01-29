@@ -34,8 +34,8 @@ contract GeckoV2Migrator is Ownable {
     uint256 public immutable poolAmount;
     address public immutable agentcoinDao;
     address public immutable agentWalletAddress;
-    string public name;
-    string public symbol;
+    string public geckoV2Name;
+    string public geckoV2Symbol;
 
     address public immutable geckoV1;
     address public geckoV2;
@@ -56,8 +56,8 @@ contract GeckoV2Migrator is Ownable {
         address _geckoV1, 
         address _uniswapRouter
     ) Ownable(owner) {
-        name = _name;
-        symbol = _symbol;
+        geckoV2Name = _name;
+        geckoV2Symbol = _symbol;
         agentcoinDao = _agentcoinDao;
         agentWalletAddress = _agentWalletAddress;
         daoAmount = _daoAmount;
@@ -119,7 +119,7 @@ contract GeckoV2Migrator is Ownable {
 
         // Deploy the proxy contract
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation), abi.encodeCall(AgentTokenV2.initialize, (name, symbol, agentcoinDao, recipients, amounts))
+            address(implementation), abi.encodeCall(AgentTokenV2.initialize, (geckoV2Name, geckoV2Symbol, agentcoinDao, recipients, amounts))
         );
 
         geckoV2 = address(proxy);
