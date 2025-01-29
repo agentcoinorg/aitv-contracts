@@ -4,12 +4,13 @@ pragma solidity 0.8.28;
 import {Test, console} from "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {AgentTokenV2} from "../src/AgentTokenV2.sol";
 import {AgentStaking} from "../src/AgentStaking.sol";
 
 contract AgentStakingTest is Test {
-    IERC20 public key;
+    IERC20 public token;
     AgentStaking public staking;
 
     address public user = makeAddr("user");
@@ -17,23 +18,23 @@ contract AgentStakingTest is Test {
     address public owner = makeAddr("owner");
 
     function setUp() public {
-        key = IERC20(_deployAgentKey(owner));
-        staking = AgentStaking(_deployAgentStaking(owner, address(key)));
+        token = IERC20(_deployAgentToken(owner));
+        staking = AgentStaking(_deployAgentStaking(owner, address(token)));
     }
 
     function test_canStake() public {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
     
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
         assertEq(staking.getStakedAmount(user), amount);
     }
 
@@ -41,21 +42,21 @@ contract AgentStakingTest is Test {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount * 2);
+        token.transfer(user, amount * 2);
 
-        assertEq(key.balanceOf(user), amount * 2);
+        assertEq(token.balanceOf(user), amount * 2);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
     
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
         assertEq(staking.getStakedAmount(user), amount);
 
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
         assertEq(staking.getStakedAmount(user), amount * 2);
     }
 
@@ -63,88 +64,88 @@ contract AgentStakingTest is Test {
         uint256 amount = 100 * 1e18;
       
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
 
         staking.unstake(amount);
 
         assertEq(staking.getStakedAmount(user), 0);
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
     }
 
     function test_canClaimAfterUnstakeLockPeriod() public {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
 
         staking.unstake(amount);
 
         vm.warp(block.timestamp + 1 days);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
     
         staking.claim(1, user);
 
         assertEq(staking.getStakedAmount(user), 0);
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
     }
 
     function test_canClaimToAnotherAccount() public {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
 
         staking.unstake(amount);
 
         vm.warp(block.timestamp + 1 days);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
     
         staking.claim(1, recipient);
 
         assertEq(staking.getStakedAmount(user), 0);
-        assertEq(key.balanceOf(user), 0);
-        assertEq(key.balanceOf(recipient), amount);
+        assertEq(token.balanceOf(user), 0);
+        assertEq(token.balanceOf(recipient), amount);
     }
 
     function test_forbidsClaimingBeforeUnstakeLockPeriod() public {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
 
         staking.unstake(amount);
 
@@ -153,7 +154,7 @@ contract AgentStakingTest is Test {
         staking.claim(1, user);
 
         assertEq(staking.getStakedAmount(user), 0);
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
     }
 
     function test_forbidsStakingZero() public {
@@ -167,10 +168,10 @@ contract AgentStakingTest is Test {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
         vm.expectRevert(AgentStaking.EmptyAmount.selector);
@@ -181,10 +182,10 @@ contract AgentStakingTest is Test {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
         vm.expectRevert(AgentStaking.InsufficientStakedBalance.selector);
@@ -202,10 +203,10 @@ contract AgentStakingTest is Test {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
         staking.unstake(amount);
@@ -214,28 +215,28 @@ contract AgentStakingTest is Test {
         staking.claim(2, user);
 
         assertEq(staking.getStakedAmount(user), 0);
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
     }
 
     function test_canUnstakeAndClaimMultipleOneByOne() public {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
 
         _unstakeWarpAndClaim(user, amount / 4);
         _unstakeWarpAndClaim(user, amount / 4);
         _unstakeWarpAndClaim(user, amount / 4);
 
-        assertEq(key.balanceOf(user), 3 * amount / 4);
+        assertEq(token.balanceOf(user), 3 * amount / 4);
         assertEq(staking.getStakedAmount(user), amount / 4);
     }
     
@@ -243,15 +244,15 @@ contract AgentStakingTest is Test {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
 
         // Unstake a few times in different time intervals
         staking.unstake(amount / 4);
@@ -260,7 +261,7 @@ contract AgentStakingTest is Test {
         vm.warp(block.timestamp + 1 hours);
         staking.unstake(amount / 4);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
         assertEq(staking.getStakedAmount(user), amount / 4);
 
         vm.warp(block.timestamp + 1 days);
@@ -268,7 +269,7 @@ contract AgentStakingTest is Test {
         vm.startPrank(user);
         staking.claim(3, user);
 
-        assertEq(key.balanceOf(user), 3 * amount / 4);
+        assertEq(token.balanceOf(user), 3 * amount / 4);
         assertEq(staking.getStakedAmount(user), amount / 4);
     }
 
@@ -276,15 +277,15 @@ contract AgentStakingTest is Test {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
 
         // Unstake a few times in different time intervals
         staking.unstake(amount / 4);
@@ -295,7 +296,7 @@ contract AgentStakingTest is Test {
         vm.warp(block.timestamp + 2 hours);
         staking.unstake(amount / 4);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
         assertEq(staking.getStakedAmount(user), 0);
 
         vm.warp(block.timestamp + 1 days);
@@ -303,7 +304,7 @@ contract AgentStakingTest is Test {
         vm.startPrank(user);
         staking.claim(4, user);
 
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
         assertEq(staking.getStakedAmount(user), 0);
     }
 
@@ -311,15 +312,15 @@ contract AgentStakingTest is Test {
         uint256 amount = 100 * 1e18;
 
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
-        assertEq(key.balanceOf(user), amount);
+        assertEq(token.balanceOf(user), amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
 
         // Unstake a few times in different time intervals
         staking.unstake(amount / 10);
@@ -359,19 +360,19 @@ contract AgentStakingTest is Test {
         uint256 amount = 100 * 1e18;
       
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
 
         staking.unstake(amount);
         vm.warp(block.timestamp + 1 days);
         staking.claim(1, user);
 
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount / 2);
 
         staking.unstake(amount / 2);
@@ -387,39 +388,56 @@ contract AgentStakingTest is Test {
         uint256 amount = 100 * 1e18;
       
         vm.prank(owner);
-        key.transfer(user, amount);
+        token.transfer(user, amount);
 
         vm.startPrank(user);
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount);
 
-        assertEq(key.balanceOf(user), 0);
+        assertEq(token.balanceOf(user), 0);
 
         staking.unstake(amount);
         vm.warp(block.timestamp + 1 days);
         staking.claim(1, user);
 
-        key.approve(address(staking), amount);
+        token.approve(address(staking), amount);
         staking.stake(amount / 4);
 
-        assertEq(key.balanceOf(user), 3 * amount / 4);
+        assertEq(token.balanceOf(user), 3 * amount / 4);
         assertEq(staking.getStakedAmount(user), amount / 4);
+    }
+    
+    function test_ownerCanUpgrade() public {
+        address newImplementation = address(new AgentStakingV2Mock());
+
+        vm.startPrank(owner);
+        staking.upgradeToAndCall(newImplementation, "");
+
+        assertEq(AgentStakingV2Mock(address(staking)).test(), true);
+    }
+
+    function test_forbidsNonOwnerFromUpgrading() public {
+        address newImplementation = address(new AgentStakingV2Mock());
+
+        vm.startPrank(user);
+        vm.expectPartialRevert(OwnableUpgradeable.OwnableUnauthorizedAccount.selector);
+        staking.upgradeToAndCall(newImplementation, "");
     }
 
     function _unstakeWarpAndClaim(address staker, uint256 amount) internal {
         vm.startPrank(staker);
 
-        uint256 startBalance = key.balanceOf(staker);
+        uint256 startBalance = token.balanceOf(staker);
         staking.unstake(amount);
-        assertEq(key.balanceOf(staker), startBalance);
+        assertEq(token.balanceOf(staker), startBalance);
         vm.warp(block.timestamp + 1 days);
         staking.claim(1, staker);
-        assertEq(key.balanceOf(staker), startBalance + amount);
+        assertEq(token.balanceOf(staker), startBalance + amount);
     }
 
-    function _deployAgentKey(address _owner) internal returns(address) {
-        string memory name = "AgentKey";
-        string memory symbol = "KEY";
+    function _deployAgentToken(address _owner) internal returns(address) {
+        string memory name = "AgentToken";
+        string memory symbol = "TOKEN";
 
         AgentTokenV2 implementation = new AgentTokenV2();
 
@@ -444,5 +462,11 @@ contract AgentStakingTest is Test {
         );
 
         return address(proxy);
+    }
+}
+
+contract AgentStakingV2Mock is AgentStaking {
+    function test() external returns(bool) {
+        return true;
     }
 }
