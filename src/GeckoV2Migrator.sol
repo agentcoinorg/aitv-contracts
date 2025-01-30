@@ -7,7 +7,7 @@ import "@uniswap/v2-periphery/contracts/interfaces/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-import {AgentTokenV2} from "./AgentTokenV2.sol";
+import {AgentToken} from "./AgentToken.sol";
 import {AirdropClaim} from "./AirdropClaim.sol";
 import {IAgentKey} from "./IAgentKey.sol";
 
@@ -109,7 +109,7 @@ contract GeckoV2Migrator is Ownable {
         }
 
         // Deploy the implementation contract
-        AgentTokenV2 implementation = new AgentTokenV2();
+        AgentToken implementation = new AgentToken();
 
         address[] memory recipients = new address[](3);
         recipients[0] = agentcoinDao;
@@ -125,7 +125,7 @@ contract GeckoV2Migrator is Ownable {
 
         // Deploy the proxy contract
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation), abi.encodeCall(AgentTokenV2.initialize, (geckoV2Name, geckoV2Symbol, agentcoinDao, recipients, amounts))
+            address(implementation), abi.encodeCall(AgentToken.initialize, (geckoV2Name, geckoV2Symbol, agentcoinDao, recipients, amounts))
         );
 
         geckoV2 = address(proxy);

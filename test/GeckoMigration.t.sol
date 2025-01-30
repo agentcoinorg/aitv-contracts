@@ -11,7 +11,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {DeployAgentKey} from "../script/DeployAgentKey.s.sol";
 import {IAgentKey} from "../src/IAgentKey.sol";
-import {AgentTokenV2} from "../src/AgentTokenV2.sol";
+import {AgentToken} from "../src/AgentToken.sol";
 import {AgentStaking} from "../src/AgentStaking.sol";
 import {AirdropClaim} from "../src/AirdropClaim.sol";
 import {GeckoV2Migrator} from "../src/GeckoV2Migrator.sol";

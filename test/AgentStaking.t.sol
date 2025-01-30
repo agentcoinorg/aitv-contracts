@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-import {AgentTokenV2} from "../src/AgentTokenV2.sol";
+import {AgentToken} from "../src/AgentToken.sol";
 import {AgentStaking} from "../src/AgentStaking.sol";
 
 contract AgentStakingTest is Test {
@@ -439,7 +439,7 @@ contract AgentStakingTest is Test {
         string memory name = "AgentToken";
         string memory symbol = "TOKEN";
 
-        AgentTokenV2 implementation = new AgentTokenV2();
+        AgentToken implementation = new AgentToken();
 
         address[] memory recipients = new address[](1);
         recipients[0] = _owner;
@@ -448,7 +448,7 @@ contract AgentStakingTest is Test {
         amounts[0] = 10_000_000 * 1e18;
 
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation), abi.encodeCall(AgentTokenV2.initialize, (name, symbol, _owner, recipients, amounts))
+            address(implementation), abi.encodeCall(AgentToken.initialize, (name, symbol, _owner, recipients, amounts))
         );
 
         return address(proxy);
@@ -466,7 +466,7 @@ contract AgentStakingTest is Test {
 }
 
 contract AgentStakingV2Mock is AgentStaking {
-    function test() external returns(bool) {
+    function test() external pure returns(bool) {
         return true;
     }
 }

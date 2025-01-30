@@ -6,14 +6,14 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {HelperConfig} from "../script/HelperConfig.s.sol";
-import {AgentTokenV2} from "../src/AgentTokenV2.sol";
+import {AgentToken} from "../src/AgentToken.sol";
 
-contract AgentTokenV2Test is Test {
-    AgentTokenV2 private token;
+contract AgentTokenTest is Test {
+    AgentToken private token;
     address private owner = makeAddr("owner");
 
     function setUp() public {
-        token = AgentTokenV2(_deployAgentToken(owner));
+        token = AgentToken(_deployAgentToken(owner));
     }
 
     function test_ownerIsSetCorrectly() public view {
@@ -54,7 +54,7 @@ contract AgentTokenV2Test is Test {
     }
 
     function test_cannotCallInitializerInImplementation() public {
-        AgentTokenV2 newImplementation = new AgentTokenV2();
+        AgentToken newImplementation = new AgentToken();
 
         address[] memory recipients = new address[](1);
         recipients[0] = owner;
@@ -115,7 +115,7 @@ contract AgentTokenV2Test is Test {
         string memory name = "AgentToken";
         string memory symbol = "TOKEN";
 
-        AgentTokenV2 implementation = new AgentTokenV2();
+        AgentToken implementation = new AgentToken();
 
         address[] memory recipients = new address[](1);
         recipients[0] = _owner;
@@ -124,14 +124,14 @@ contract AgentTokenV2Test is Test {
         amounts[0] = 10_000_000 * 1e18;
 
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation), abi.encodeCall(AgentTokenV2.initialize, (name, symbol, _owner, recipients, amounts))
+            address(implementation), abi.encodeCall(AgentToken.initialize, (name, symbol, _owner, recipients, amounts))
         );
 
         return address(proxy);
     }
 }
 
-contract  AgentTokenV2Mock is AgentTokenV2 {
+contract  AgentTokenV2Mock is AgentToken {
     function test() public pure returns(bool) {
         return true;
     }
