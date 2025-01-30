@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-import "@uniswap/v2-periphery/contracts/interfaces/IERC20.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import {IUniswapV2Factory} from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
+import {IERC20} from "@uniswap/v2-periphery/contracts/interfaces/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -25,8 +25,6 @@ contract GeckoV2Migrator is Ownable {
     error NoTokensToDeploy();
     error AlreadyMigrated();
     error V1NotStopped();
-
-    event LiquidityPoolCreated(address pair);
 
     IUniswapV2Router02 public immutable uniswapRouter;
 
@@ -95,10 +93,8 @@ contract GeckoV2Migrator is Ownable {
         IERC20(geckoV2Address).approve(airdrop, airdropAmount);
         AirdropClaim(airdrop).deposit(geckoV2Address, airdropAmount);
 
-        // Create the Uniswap pair if it doesn't exist
-        _createPair();
         // Deploy the ETH from the Gecko V1 bonding curve and a portion of the V2 tokens to the Uniswap pair to create liquidity
-        _deployLiquidity();
+        _addLiquidity();
     }
 
     /// @notice Deploys the Gecko V2 token contract and initializes it
@@ -133,24 +129,10 @@ contract GeckoV2Migrator is Ownable {
         return address(proxy);
     }
 
-    function _createPair() internal {
-        address uniswapV2Pair = IUniswapV2Factory(uniswapRouter.factory()).getPair(
-            geckoV2,
-            uniswapRouter.WETH()
-        );
-
-        if (uniswapV2Pair == address(0)) {
-            uniswapV2Pair = IUniswapV2Factory(uniswapRouter.factory())
-                .createPair(geckoV2, geckoV1);
-
-            emit LiquidityPoolCreated(uniswapV2Pair);
-        }
-    }
-
-    /// @notice Deploys the liquidity to the Uniswap pair
+    /// @notice Add liquidity to the Uniswap pair
     /// The contract must have the V2 tokens and ETH in its balance
     /// @dev We burn the LP tokens by sending them to the 0 address
-    function _deployLiquidity() internal {
+    function _addLiquidity() internal {
         uint256 v2Balance = IERC20(geckoV2).balanceOf(address(this));
         uint256 ethBalance = address(this).balance;
         if (v2Balance == 0) {

@@ -237,7 +237,6 @@ contract GeckoMigrationTest is Test {
         address[] memory path = new address[](2);
         path[0] = router.WETH();
 
-        console.logAddress(path[0]);
         path[1] = address(geckoV2);
 
         uint256 amountOutMin = 0.6 ether;
