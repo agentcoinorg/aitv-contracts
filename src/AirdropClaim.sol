@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title AirdropClaim
-/// @notice The following is contract to migrate Gecko V1 tokens to V2
+/// @notice The following is a contract to migrate Gecko V1 tokens to V2
 /// Users that hold Gecko V1 tokens can claim a proportional amount of Gecko V2 tokens
 contract AirdropClaim {
     using SafeERC20 for IERC20;

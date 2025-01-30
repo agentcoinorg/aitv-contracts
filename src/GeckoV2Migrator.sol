@@ -13,7 +13,7 @@ import {IAgentKey} from "./IAgentKey.sol";
 
 
 /// @title GeckoV2Migrator
-/// @notice The following is contract to migrate the Gecko V1 token to V2
+/// @notice The following is a contract that migrates the Gecko V1 token to V2
 /// The contract will:
 /// - Deploy the new Gecko V2 token contract
 /// - Deploy an airdrop contract for holders of V1 to claim the new token

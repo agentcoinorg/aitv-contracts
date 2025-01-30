@@ -7,7 +7,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 /// @title AgentStaking
-/// @notice The following is contract for staking agent tokens
+/// @notice The following is a contract for staking agent tokens
 /// Tokens can be unstaked, but will be locked for a period of time (1 day) before they can be claimed
 contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
