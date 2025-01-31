@@ -2,11 +2,11 @@
 pragma solidity 0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import {IUniswapV2Factory} from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
+import {IUniswapV2Pair} from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {DeployAgentKey} from "../script/DeployAgentKey.s.sol";
