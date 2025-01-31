@@ -239,10 +239,10 @@ contract GeckoMigrationTest is Test {
 
         path[1] = address(geckoV2);
 
-        uint256 amountOutMin = 0.6 ether;
+        uint256 amountIn = 0.6 ether;
 
         vm.startPrank(user3);
-        router.swapExactETHForTokens{value: amountOutMin}(
+        router.swapExactETHForTokens{value: amountIn}(
             0,
             path,
             user3,
@@ -265,13 +265,11 @@ contract GeckoMigrationTest is Test {
         path[0] = router.WETH();
         path[1] = address(geckoV2);
 
-        uint256 amountIn = 1 ether;
-        uint256 amountOutMin = 0.6 ether;
-
-        geckoV2.approve(address(router), amountIn);
+        uint256 amountIn = 0.6 ether;
 
         vm.startPrank(user2);
-        router.swapExactETHForTokens{value: amountOutMin}(
+
+        router.swapExactETHForTokens{value: amountIn}(
             0,
             path,
             user2,
