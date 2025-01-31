@@ -34,12 +34,12 @@ $ ./deploy/agent-staking-base.sh pk
 This contract is the second version of the agent token contract (previous being AgentKey). It is an upgradeable ERC20 token with snapshot functionality.
 
 #### AgentStaking
-This contract is used to stake AgentTokenV2 tokens. A user can stake or unstake any amount of tokens at any time.
+This contract is used to stake AgentToken tokens. A user can stake or unstake any amount of tokens at any time.
 Unstaking tokens will lock the tokens for 1 day before they can be claimed. The user can claim the tokens after the lock period is over.
 
 #### GeckoV2Migrator
 This contract is used to migrate the old Gecko token to the new Gecko token. 
-The old token contract is AgentKey and the new token contract is AgentTokenV2.
+The old token contract is AgentKey and the new token contract is AgentToken.
 It deploys the new Gecko token contract, an airdrop contract for holders of the old token to claim the new token, creates and funds a liquidity pool on Uniswap, and distributes tokens to the AgentCoin DAO, Gecko's cold wallet, and the pool.
 There will be 10 million new Gecko tokens minted and distributed as follows:
 - 700,000 to the AgentCoin DAO
