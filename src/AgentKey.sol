@@ -41,12 +41,7 @@ contract AgentKey is DecentralizedAutonomousTrust {
     }
 
     /// @dev Overrides the modifier in ContinuousOffering
-    modifier authorizeTransfer(
-        address _from,
-        address _to,
-        uint256 _value,
-        bool _isSell
-    ) {
+    modifier authorizeTransfer(address _from, address _to, uint256 _value, bool _isSell) {
         if (isStopped) {
             revert("Contract is stopped");
         }
