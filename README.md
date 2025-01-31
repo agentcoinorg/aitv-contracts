@@ -56,3 +56,4 @@ There will be 10 million new Gecko tokens minted and distributed as follows:
 #### AirdopClaim
 This contract is used to claim the new Gecko token for holders of the old Gecko token. The contract is funded by the GeckoV2Migrator contract and the user can claim the new token by calling the claim function.
 Anyone can call the claim function for any address, but that address can only claim once.
+
