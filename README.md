@@ -30,7 +30,7 @@ $ ./deploy/agent-staking-base.sh pk
 ```
 
 ### Contracts
-#### AgentTokenV2
+#### AgentToken
 This contract is the second version of the agent token contract (previous being AgentKey). It is an upgradeable ERC20 token with snapshot functionality.
 
 #### AgentStaking
