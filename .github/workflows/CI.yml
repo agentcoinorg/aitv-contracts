@@ -50,3 +50,6 @@ jobs:
         run: |
           forge test -vvv
         id: test
+        env:
+          BASE_RPC_URL: "${{ secrets.BASE_RPC_URL }}"
+          BASE_UNISWAP_ROUTER: "${{ secrets.BASE_UNISWAP_ROUTER }}"
