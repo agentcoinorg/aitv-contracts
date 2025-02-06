@@ -145,12 +145,12 @@ contract GeckoV2Migrator is Ownable {
 
         IERC20(geckoV2).approve(address(uniswapRouter), v2Balance);
         uniswapRouter.addLiquidityETH{value: ethBalance}(
-            geckoV2,              // ERC20 token address
-            v2Balance,            // All ERC20 tokens held by the contract
-            0,                    // Accept any amount of tokens (minToken)
-            0,                    // Accept any amount of ETH (minETH)
-            address(0),           // NULL address receives the LP tokens
-            block.timestamp       // Deadline
+            geckoV2,                 // ERC20 token address
+            v2Balance,               // All ERC20 tokens held by the contract
+            v2Balance * 995 / 1000,  // Min of 99.5% of the tokens will be added to the pool
+            ethBalance * 995 / 1000, // Min of 99.5% of the ETH will be added to the pool
+            address(0),              // NULL address receives the LP tokens
+            block.timestamp          // Deadline
         );
     }
 
