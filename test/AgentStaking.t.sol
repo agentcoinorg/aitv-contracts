@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {Test, console} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {AgentToken} from "../src/AgentToken.sol";
@@ -424,6 +425,107 @@ contract AgentStakingTest is Test {
         staking.upgradeToAndCall(newImplementation, "");
     }
 
+    function test_upgradeUnlockTime() public {
+        uint256 amount = 100 * 1e18;
+
+        vm.prank(owner);
+        token.transfer(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(staking), amount);
+        staking.stake(amount);
+
+        address newImplementation = address(new AgentStakingUnlock());
+
+        vm.startPrank(owner);
+        staking.upgradeToAndCall(newImplementation, "");
+
+        vm.startPrank(user);
+        staking.unstake(amount);
+
+        vm.warp(block.timestamp + 1 days);
+        
+        staking.claim(1, user);
+
+        assertEq(staking.getStakedAmount(user), 0);
+        assertEq(token.balanceOf(user), 0);
+
+        vm.warp(block.timestamp + 1 days);
+        
+        staking.claim(1, user);
+
+        assertEq(staking.getStakedAmount(user), 0);
+        assertEq(token.balanceOf(user), amount);
+    }
+
+    function test_canUpgradeDisableStaking() public {
+        uint256 amount = 100 * 1e18;
+
+        vm.prank(owner);
+        token.transfer(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(staking), amount);
+        staking.stake(amount);
+
+        address newImplementation = address(new AgentStakingDisabled());
+
+        vm.startPrank(owner);
+        staking.upgradeToAndCall(newImplementation, "");
+
+        vm.startPrank(user);
+        vm.expectRevert("Staking is disabled");
+        staking.stake(amount);
+    }
+
+    function test_canUpgradeDisableUnstaking() public {
+        uint256 amount = 100 * 1e18;
+
+        vm.prank(owner);
+        token.transfer(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(staking), amount);
+        staking.stake(amount);
+
+        address newImplementation = address(new AgentUnstaking());
+
+        vm.startPrank(owner);
+        staking.upgradeToAndCall(newImplementation, "");
+
+        vm.startPrank(user);
+        vm.expectRevert("Unstaking is disabled");
+        staking.unstake(amount);
+    }
+
+    function test_canUpgradeAndAccessStorage() public {
+        uint256 amount = 100 * 1e18;
+        address newStaking = makeAddr("newStaking");
+
+        vm.prank(owner);
+        token.transfer(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(staking), amount);
+        staking.stake(amount);
+
+        assertEq(staking.getStakedAmount(user), amount);
+        assertEq(token.balanceOf(newStaking), 0);
+
+        address newImplementation = address(new AgentStakingAccessStorage());
+
+        vm.startPrank(owner);
+        staking.upgradeToAndCall(newImplementation, "");
+
+        assertEq(staking.getStakedAmount(user), amount);
+        assertEq(token.balanceOf(newStaking), 0);
+
+        AgentStakingAccessStorage(address(staking)).migrate(newStaking, user);
+
+        assertEq(staking.getStakedAmount(user), 0);
+        assertEq(token.balanceOf(newStaking), amount);
+    }
+
     function _unstakeWarpAndClaim(address staker, uint256 amount) internal {
         vm.startPrank(staker);
 
@@ -466,7 +568,40 @@ contract AgentStakingTest is Test {
 }
 
 contract AgentStakingV2Mock is AgentStaking {
-    function test() external pure returns(bool) {
+    function test() public pure returns (bool) {
         return true;
+    }
+}
+
+contract AgentStakingUnlock is AgentStaking {
+    function unlock_time() public view override returns (uint256) {
+        return 2 days;
+    }
+}
+
+contract AgentStakingDisabled is AgentStaking {
+    function stake(uint256 amount) public override {
+        revert("Staking is disabled");
+    }
+}
+
+contract AgentUnstaking is AgentStaking {
+    function unstake(uint256 amount) public override {
+        revert("Unstaking is disabled");
+    }
+}
+
+contract AgentStakingAccessStorage is AgentStaking {
+    using SafeERC20 for IERC20;
+    
+    function migrate(address newStakingAddress, address user) public {
+        uint256 amount = stakes[user];
+
+        if (amount == 0) {
+            revert ("No stakes to migrate");
+        }
+
+        stakes[user] = 0;
+        agentToken.transfer(newStakingAddress, amount);
     }
 }

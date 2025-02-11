@@ -17,21 +17,20 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
     error NoLockedWithdrawalsFound();
 
     IERC20 public agentToken;
-    uint256 public constant UNLOCK_TIME = 1 days;
 
     struct LockedWithdrawal {
         uint256 amount;
         uint256 lockedUntil;
     }
 
-    mapping(address => uint256) private stakes;
+    mapping(address => uint256) internal stakes;
 
     // Queue of withdrawals
     // Withdrawals are pushed to the end of the queue
     // withdrawalQueueStartIndexes is used to track the start of the queue since were using an array
     // This is to avoid shifting the array every time a withdrawal is claimed
-    mapping(address => LockedWithdrawal[]) private withdrawalQueue;
-    mapping(address => uint256) private withdrawalQueueStartIndexes;
+    mapping(address => LockedWithdrawal[]) internal withdrawalQueue;
+    mapping(address => uint256) internal withdrawalQueueStartIndexes;
 
     event Stake(address indexed account, uint256 amount, uint256 totalStaked);
     event Unstake(address indexed account, uint256 amount, uint256 unlocksAt, uint256 totalStaked);
@@ -51,7 +50,7 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
 
     /// @notice Stake agent tokens
     /// @param amount The amount of tokens to stake
-    function stake(uint256 amount) external {
+    function stake(uint256 amount) public virtual {
         if (amount == 0) {
             revert EmptyAmount();
         }
@@ -66,7 +65,7 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
     /// @notice Unstake agent tokens
     /// @param amount The amount of tokens to unstake
     /// @dev Tokens will be locked for a period of time (1 day) before they can be claimed
-    function unstake(uint256 amount) external {
+    function unstake(uint256 amount) public virtual {
         if (amount == 0) {
             revert EmptyAmount();
         }
@@ -78,7 +77,7 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
         uint256 totalStaked = stakes[msg.sender] - amount; 
         stakes[msg.sender] = totalStaked;
 
-        uint256 unlocksAt = block.timestamp + UNLOCK_TIME;
+        uint256 unlocksAt = block.timestamp + unlock_time();
 
         withdrawalQueue[msg.sender].push(LockedWithdrawal(amount, unlocksAt));
         emit Unstake(msg.sender, amount, unlocksAt, totalStaked);
@@ -86,7 +85,7 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
 
     /// @notice Claim unlocked agent tokens
     /// @param count The number of 'unlocked' withdrawals to claim
-    function claim(uint256 count, address recipient) external {
+    function claim(uint256 count, address recipient) public virtual {
         uint256 start = withdrawalQueueStartIndexes[msg.sender];
 
         uint256 length = withdrawalQueue[msg.sender].length;
@@ -121,7 +120,7 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
 
     /// @notice Get the amount of agent tokens staked by an account
     /// @param account The account to get the staked amount for
-    function getStakedAmount(address account) external view returns (uint256) {
+    function getStakedAmount(address account) public virtual view returns (uint256) {
         return stakes[account];
     }
 
@@ -129,7 +128,7 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
     /// @param account The account to get the withdrawals for
     /// @param start The start index of the withdrawals
     /// @param count The number of withdrawals to get
-    function getWithdrawals(address account, uint256 start, uint256 count) external view returns (LockedWithdrawal[] memory) {
+    function getWithdrawals(address account, uint256 start, uint256 count) public virtual view returns (LockedWithdrawal[] memory) {
         start = withdrawalQueueStartIndexes[account] + start;
         uint256 length = withdrawalQueue[account].length;
 
@@ -152,10 +151,15 @@ contract AgentStaking is OwnableUpgradeable, UUPSUpgradeable {
 
     /// @notice Get the number of locked withdrawals for an account
     /// @param account The account to get the number of withdrawals for
-    function getWithdrawalCount(address account) external view returns (uint256) {
+    function getWithdrawalCount(address account) public virtual view returns (uint256) {
         return withdrawalQueue[account].length - withdrawalQueueStartIndexes[account];
     }
 
+    /// @notice Get the unlock time
+    function unlock_time() public virtual view returns (uint256) {
+        return 1 days;
+    }
+
     /// @dev Only the owner can upgrade the contract
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    function _authorizeUpgrade(address) internal virtual override onlyOwner {}
 }

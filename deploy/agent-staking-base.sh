@@ -22,4 +22,4 @@ else
         --etherscan-api-key $BASESCAN_API_KEY \
         --account $FORGE_ACCOUNT \
         --slow
-fis
+fi
