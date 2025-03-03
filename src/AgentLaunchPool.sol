@@ -107,8 +107,8 @@ contract AgentLaunchPool {
     }
 
     /// @notice Launch the Agent Token
-    /// The contract will deploy the Agent Token contract and create a liquidity pool on Uniswap
-    /// Users that have deposited ETH can claim their tokens after the launch
+    /// The contract will deploy the Agent Token contract, create a liquidity pool on Uniswap and deploy the staking contract
+    /// Users that have deposited ETH can claim their agent tokens after the launch
     function launch() external {
         if (hasLaunched) {
             revert AlreadyLaunched();
@@ -255,7 +255,7 @@ contract AgentLaunchPool {
     /// @notice Claim tokens for the recipient that will be transferred from the contract to the recipient
     /// @param _recipient The address of the recipient
     /// @return If the claim was successful or not
-    function _claim(address _recipient) public returns (bool) {
+    function _claim(address _recipient) internal returns (bool) {
         if (deposits[_recipient] == 0) {
             return false;
         }
@@ -371,7 +371,6 @@ contract AgentLaunchPool {
                 block.timestamp                  // Deadline
             );
         }
-        
     }
 
     /// @notice Check if the time window has passed
