@@ -9,3 +9,4 @@ forge-std/=lib/forge-std/src/
 @uniswap/v2-core/contracts/=node_modules/@uniswap/v2-core/contracts/
 @uniswap/v4-core/src/=node_modules/@uniswap/v4-core/src/
 @uniswap/v4-periphery/src/=node_modules/@uniswap/v4-periphery/src/
+@uniswap/universal-router/src/=node_modules/@uniswap/universal-router/contracts/

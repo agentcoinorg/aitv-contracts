@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.28;
+pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -14,7 +14,7 @@ import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUn
 import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
 import {BalanceDelta} from '@uniswap/v4-core/src/types/BalanceDelta.sol';
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from '@uniswap/v4-core/src/types/BeforeSwapDelta.sol';
-import {Currency} from '@uniswap/v4-core/src/types/Currency.sol';¸
+import {Currency} from '@uniswap/v4-core/src/types/Currency.sol';
 import {Hooks, IHooks} from '@uniswap/v4-core/src/libraries/Hooks.sol';
 import {IPoolManager} from '@uniswap/v4-core/src/interfaces/IPoolManager.sol';
 import {PoolId, PoolIdLibrary} from '@uniswap/v4-core/src/types/PoolId.sol';
@@ -27,6 +27,11 @@ import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol"
 import {HookMiner} from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
+import { Commands } from "@uniswap/universal-router/src/libraries/Commands.sol";
+import { IV4Router } from "@uniswap/v4-periphery/src/interfaces/IV4Router.sol";
+import { Actions } from "@uniswap/v4-periphery/src/libraries/Actions.sol";
+import { IPermit2 } from "permit2/src/interfaces/IPermit2.sol";
+import { IUniversalRouter } from "@uniswap/universal-router/src/interfaces/IUniversalRouter.sol";
 
 import {AgentToken} from "../src/AgentToken.sol";
 import {AgentStaking} from "../src/AgentStaking.sol";
@@ -38,21 +43,24 @@ contract UniswapV4Test is Test {
     address uniswapPoolManager;
     address uniswapPositionManager;
     address agentWallet = makeAddr("agentWallet");
-    
+    address uniswapUniversalRouter;
+    address dao = makeAddr("dao");
+
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
         uniswapPoolManager = vm.envAddress("BASE_POOL_MANAGER");
         uniswapPositionManager = vm.envAddress("BASE_POSITION_MANAGER");
+        uniswapUniversalRouter = vm.envAddress("BASE_UNIVERSAL_ROUTER");
     }
 
     function test_aa() public {
         MockedERC20 memecoin = new MockedERC20();
 
         uint160 flags = uint160(
-            Hooks.AFTER_SWAP_FLAG
+            Hooks.AFTER_SWAP_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
 
-        bytes memory constructorArgs = abi.encode(uniswapPoolManager, uniswapPositionManager, address(0), address(memecoin));
+        bytes memory constructorArgs = abi.encode(uniswapPoolManager, uniswapPositionManager, address(0), address(memecoin), dao);
         (address hookAddress, bytes32 salt) =
             HookMiner.find(address(this), flags, type(MyHooks).creationCode, constructorArgs);
 
@@ -60,7 +68,8 @@ contract UniswapV4Test is Test {
             uniswapPoolManager, 
             uniswapPositionManager,
             address(0),
-            address(memecoin)
+            address(memecoin),
+            dao
         );
 
         require(address(hooks) == hookAddress, "Hook address mismatch");
@@ -68,16 +77,65 @@ contract UniswapV4Test is Test {
         vm.deal(address(this), 2000 ether);
         memecoin.mint(address(hooks), 1000 * 1e18);
 
-        uint256 tokenAAmount = 100 ether;
-        uint256 tokenBAmount = 100 * 1e18;
+        uint256 tokenAAmount = 1000 ether;
+        uint256 tokenBAmount = 1000 * 1e18;
 
-        hooks.createPoolAndAddLiquidity{value: tokenAAmount}(tokenAAmount, tokenBAmount);
+        PoolKey memory pool = hooks.createPoolAndAddLiquidity{value: tokenAAmount}(tokenAAmount, tokenBAmount);
 
         uint256 ethBalance = address(hooks).balance;
         uint256 memecoinBalance = memecoin.balanceOf(address(hooks));
 
-        console.logUint(ethBalance);
-        console.logUint(memecoinBalance);
+        console.logUint(ethBalance * 100 / 1e18);
+        console.logUint(memecoinBalance * 100 / 1e18);
+        console.logUint(memecoin.balanceOf(address(this)) * 100 / 1e18);
+
+        uint256 out = swapExactInputSingle(pool, 5 ether, 0);
+
+        console.logUint(out * 100 / 1e18);
+        console.logUint(memecoin.balanceOf(address(this)) * 10000 / 1e18);
+        console.logUint(dao.balance * 10000 / 1e18);
+    }
+
+    function swapExactInputSingle(
+        PoolKey memory key,
+        uint128 amountIn,
+        uint128 minAmountOut
+    ) public payable returns (uint256 amountOut) {
+        // Encode the Universal Router command
+        bytes memory commands = abi.encodePacked(uint8(Commands.V4_SWAP));
+        bytes[] memory inputs = new bytes[](1);
+
+        // Encode V4Router actions
+        bytes memory actions = abi.encodePacked(
+            uint8(Actions.SWAP_EXACT_IN_SINGLE),
+            uint8(Actions.SETTLE_ALL),
+            uint8(Actions.TAKE_ALL)
+        );
+
+        // Prepare parameters for each action
+        bytes[] memory params = new bytes[](3);
+        params[0] = abi.encode(
+            IV4Router.ExactInputSingleParams({
+                poolKey: key,
+                zeroForOne: true,
+                amountIn: amountIn,
+                amountOutMinimum: minAmountOut,
+                hookData: bytes("")
+            })
+        );
+        params[1] = abi.encode(key.currency0, amountIn);
+        params[2] = abi.encode(key.currency1, minAmountOut);
+
+        // Combine actions and params into inputs
+        inputs[0] = abi.encode(actions, params);
+
+        // Execute the swap
+        IUniversalRouter(uniswapUniversalRouter).execute{value: amountIn}(commands, inputs, block.timestamp);
+
+        // Verify and return the output amount
+        amountOut = IERC20(Currency.unwrap(key.currency1)).balanceOf(address(this));
+        require(amountOut >= minAmountOut, "Insufficient output amount");
+        return amountOut;
     }
 }
 
@@ -93,15 +151,17 @@ contract MyHooks is BaseHook {
     IPositionManager positionManager;
     address tokenA;
     address tokenB;
+    address dao;
 
-    constructor(address _poolManager, address _positionManager, address _tokenA, address _tokenB) BaseHook(IPoolManager(_poolManager)) {
+    constructor(address _poolManager, address _positionManager, address _tokenA, address _tokenB, address _dao) BaseHook(IPoolManager(_poolManager)) {
         positionManager = IPositionManager(_positionManager);
         tokenA = _tokenA;
         tokenB = _tokenB;
+        dao = _dao;
     }
 
-    function createPoolAndAddLiquidity(uint256 tokenAAmount, uint256 tokenBAmount) external payable {
-        uint24 lpFee = 10000; // 1%
+    function createPoolAndAddLiquidity(uint256 tokenAAmount, uint256 tokenBAmount) external payable returns(PoolKey memory) {
+        uint24 lpFee = 0; // 1%
         int24 tickSpacing = 200;
         address permit2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
         uint256 amountAMax = tokenAAmount;
@@ -182,6 +242,8 @@ contract MyHooks is BaseHook {
         } else {
             positionManager.multicall(params);
         }
+
+        return pool;
     }
 
     /**
@@ -200,14 +262,26 @@ contract MyHooks is BaseHook {
         PoolKey calldata _key,
         IPoolManager.SwapParams calldata _params,
         bytes calldata _hookData
-    ) internal override returns (bytes4, int128) {
-        if (params.zeroForOne) {
-            startFee0 = poolManager.hookFeesAccrued(address(key.hooks), key.currency0);
+    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+        uint256 swapAmount = _params.amountSpecified < 0
+            ? uint256(-_params.amountSpecified)
+            : uint256(_params.amountSpecified);
+        uint256 feeAmount = (swapAmount * 100) / 10000;
+
+        Currency feeCurrency = _params.zeroForOne ? _key.currency0 : _key.currency1;
+        bool isBurn = !_params.zeroForOne;
+
+        if (isBurn) {
+            poolManager.take(feeCurrency, address(0), feeAmount);
+            return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(int128(int256(feeAmount)), 0), 0);
         } else {
-            startFee1 = poolManager.hookFeesAccrued(address(key.hooks), key.currency1);
+            poolManager.take(feeCurrency, dao, feeAmount);
+            return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(int128(int256(feeAmount)), 0), 0);
         }
 
-        return (BaseHook.beforeSwap.selector, 0);
+        return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(int128(int256(feeAmount)), 0), 0);
+
+        return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
     }
 
     function _afterSwap(
@@ -239,12 +313,14 @@ contract MyHooks is BaseHook {
             afterSwap: true,
             beforeDonate: false,
             afterDonate: false,
-            beforeSwapReturnDelta: false,
+            beforeSwapReturnDelta: true,
             afterSwapReturnDelta: false,
             afterAddLiquidityReturnDelta: false,
             afterRemoveLiquidityReturnDelta: false
         });
     }
+
+    receive() external payable {}
 }
 
 contract MockedERC20 is MockERC20 {
