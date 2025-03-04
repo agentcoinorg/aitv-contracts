@@ -43,9 +43,11 @@ contract AgentFactory is Ownable {
     function deploy(
         string memory _name, 
         string memory _symbol, 
+        address _collateral,
         address _agentWallet,
         uint256 _timeWindow,
-        uint256 _minAmountForLaunch
+        uint256 _minAmountForLaunch,
+        uint256 _maxAmountForLaunch
     ) external onlyOwner {
         address[] memory recipients = new address[](2);
         recipients[0] = owner();
@@ -59,8 +61,10 @@ contract AgentFactory is Ownable {
             owner(),
             _timeWindow,
             _minAmountForLaunch,
+            _maxAmountForLaunch,
             _name,
             _symbol,
+            _collateral,
             launchPoolAmount,
             uniswapPoolAmount,
             uniswapRouter,
