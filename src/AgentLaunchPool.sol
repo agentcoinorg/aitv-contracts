@@ -7,13 +7,14 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IPositionManager} from '@uniswap/v4-periphery/src/interfaces/IPositionManager.sol';
 
 import {AgentToken} from "./AgentToken.sol";
 import {AirdropClaim} from "./AirdropClaim.sol";
-import {IAgentKey} from "./IAgentKey.sol";
 import {AgentStaking} from "./AgentStaking.sol";
-import {ISetupInitialLiquidity} from "./ISetupInitialLiquidity.sol";
 import {FeeInfo} from "./types/FeeInfo.sol";
+import {IAgentLaunchPool} from "./IAgentLaunchPool.sol";
+import {UniswapPoolDeployer} from "./UniswapPoolDeployer.sol";
 
 /// @title AgentLaunchPool
 /// @notice The following is a contract to launch Agent Tokens
@@ -26,7 +27,7 @@ import {FeeInfo} from "./types/FeeInfo.sol";
 /// - Create and fund a liquidity pool on Uniswap
 /// - Distribute tokens to the specified recipients and the pool
 /// If the launch fails, users can reclaim their deposits
-contract AgentLaunchPool is OwnableUpgradeable, UUPSUpgradeable {
+contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgradeable, IAgentLaunchPool {
     using SafeERC20 for IERC20;
 
     error AlreadyDeployed();
@@ -48,32 +49,11 @@ contract AgentLaunchPool is OwnableUpgradeable, UUPSUpgradeable {
     event Deposit(address indexed beneficiary, address indexed depositor, uint256 amount);
     event ReclaimDeposits(address indexed sender, uint256 amount);
 
-    struct TokenInfo {
-        address owner;
-        string name;
-        string symbol;
-        uint256 totalSupply;
-    }
-
-    struct LaunchPoolInfo {
-        address collateral;
-        uint256 timeWindow;
-        uint256 minAmountForLaunch;
-        uint256 maxAmountForLaunch;
-    }
-
-    struct DistributionInfo {
-        address[] recipients;
-        uint256[] basisAmounts;
-        uint256 launchPoolBasisAmount;
-        uint256 uniswapPoolBasisAmount;
-    }
-
     TokenInfo public tokenInfo;
     LaunchPoolInfo public launchPoolInfo;
     DistributionInfo public distributionInfo;
-    ISetupInitialLiquidity public agentFactory;
-    FeeInfo public feeInfo;
+    address public agentFactory;
+    IPositionManager public uniswapPositionManager;
 
     bool public hasLaunched;
     uint256 public launchPoolCreatedOn;
@@ -92,7 +72,7 @@ contract AgentLaunchPool is OwnableUpgradeable, UUPSUpgradeable {
         TokenInfo memory _tokenInfo,
         LaunchPoolInfo memory _launchPoolInfo,
         DistributionInfo memory _distributionInfo,
-        FeeInfo memory _feeInfo
+        IPositionManager _uniswapPositionManager
     ) external initializer {
         __Ownable_init(_owner);
         __UUPSUpgradeable_init();
@@ -101,11 +81,11 @@ contract AgentLaunchPool is OwnableUpgradeable, UUPSUpgradeable {
             revert LengthMismatch();
         }
 
-        agentFactory = ISetupInitialLiquidity(msg.sender);
+        agentFactory = msg.sender;
         tokenInfo = _tokenInfo;
         launchPoolInfo = _launchPoolInfo;
         distributionInfo = _distributionInfo;
-        feeInfo = _feeInfo;
+        uniswapPositionManager = _uniswapPositionManager;
 
         launchPoolCreatedOn = block.timestamp;
     }
@@ -136,6 +116,31 @@ contract AgentLaunchPool is OwnableUpgradeable, UUPSUpgradeable {
         _deployAgentStaking(contractOwner, agentTokenAddress);
 
         _setupInitialLiquidity(agentTokenAddress, launchPoolInfo.collateral);
+    }
+
+    function computeAgentTokenAddress() external virtual returns(address) {
+        if (agentToken != address(0)) {
+            return agentToken;
+        }
+
+        uint256 length = distributionInfo.recipients.length; // This is the same as the length of basisAmounts because of the check in the constructor
+
+        address[] memory airdropRecipients = new address[](length + 1);
+        airdropRecipients[0] = address(this);
+        for (uint256 i = 0; i < length; i++) {
+            airdropRecipients[i + 1] = distributionInfo.recipients[i];
+        }
+
+        uint256[] memory airdropAmounts = new uint256[](length + 1);
+        airdropAmounts[0] = (distributionInfo.launchPoolBasisAmount + distributionInfo.uniswapPoolBasisAmount) * tokenInfo.totalSupply / 10000;
+        for (uint256 i = 0; i < length; i++) {
+            airdropAmounts[i + 1] = distributionInfo.basisAmounts[i] * tokenInfo.totalSupply / 10000;
+        }
+
+        bytes memory tokenCtorArgs = abi.encodeCall(AgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, tokenInfo.owner, airdropRecipients, airdropAmounts));
+        bytes memory proxyCtorArgs = abi.encode(tokenInfo.tokenImplementation, tokenCtorArgs);
+
+        return computeCreate2Address(address(this), bytes32(0), type(ERC1967Proxy).creationCode, proxyCtorArgs);
     }
 
     /// @notice Deposit ETH collateral to receive Agent Tokens after the launch
@@ -292,9 +297,6 @@ contract AgentLaunchPool is OwnableUpgradeable, UUPSUpgradeable {
             revert AlreadyDeployed();
         }
 
-        // Deploy the implementation contract
-        AgentToken implementation = new AgentToken();
-
         uint256 length = distributionInfo.recipients.length; // This is the same as the length of basisAmounts because of the check in the constructor
 
         address[] memory airdropRecipients = new address[](length + 1);
@@ -310,8 +312,8 @@ contract AgentLaunchPool is OwnableUpgradeable, UUPSUpgradeable {
         }
 
         // Deploy the proxy contract
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation), abi.encodeCall(AgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, _owner, airdropRecipients, airdropAmounts))
+        ERC1967Proxy proxy = new ERC1967Proxy{salt: bytes32(0)}(
+            tokenInfo.tokenImplementation, abi.encodeCall(AgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, _owner, airdropRecipients, airdropAmounts))
         );
 
         agentToken = address(proxy);
@@ -327,12 +329,9 @@ contract AgentLaunchPool is OwnableUpgradeable, UUPSUpgradeable {
             revert AlreadyDeployed();
         }
 
-        // Deploy the implementation contract
-        AgentStaking implementation = new AgentStaking();
-
         // Deploy the proxy contract
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation), abi.encodeCall(AgentStaking.initialize, (_owner, _agentTokenAddress))
+            address(tokenInfo.stakingImplementation), abi.encodeCall(AgentStaking.initialize, (_owner, _agentTokenAddress))
         );
 
         agentStaking = address(proxy);
@@ -365,7 +364,20 @@ contract AgentLaunchPool is OwnableUpgradeable, UUPSUpgradeable {
             IERC20(_collateral).approve(address(agentFactory), collateralBalance);
         }
 
-        agentFactory.setupInitialLiquidity(_agentTokenAddress, _collateral, uniswapPoolAmount, collateralBalance, feeInfo);
+        _createPoolAndAddLiquidity(
+            PoolInfo({
+                positionManager: uniswapPositionManager,
+                collateral: _collateral,
+                agentToken: _agentTokenAddress,
+                collateralAmount: collateralBalance,
+                agentTokenAmount: uniswapPoolAmount,
+                lpRecipient: address(0),
+                lpFee: 0,
+                tickSpacing: 200,
+                startingPrice: 1 * 2**96,
+                hook: agentFactory
+            })
+        );
     }
 
     /// @notice Check if the time window has passed
@@ -377,4 +389,21 @@ contract AgentLaunchPool is OwnableUpgradeable, UUPSUpgradeable {
     }
 
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
+
+    function computeCreate2Address(
+        address deployer,
+        bytes32 salt,
+        bytes memory bytecode,
+        bytes memory constructorArgs
+    ) internal pure virtual returns (address) {
+        // Append constructor arguments to bytecode
+        bytes memory initCode = abi.encodePacked(bytecode, constructorArgs);
+
+        return address(uint160(uint256(keccak256(abi.encodePacked(
+            bytes1(0xFF),
+            deployer,
+            salt,
+            keccak256(initCode)
+        )))));
+    }
 }
