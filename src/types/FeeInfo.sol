@@ -2,8 +2,8 @@
 pragma solidity ^0.8.0;
 
 struct FeeInfo {
-    address collateral;
-    uint256 burnBasisAmount;
-    address[] recipients;
-    uint256[] basisAmounts;
+    address collateral; // Address of the collateral token
+    uint256 burnBasisAmount; // Basis amount of the agent token for burning
+    address[] recipients; // Recipients of the collateral fees
+    uint256[] basisAmounts; // Basis amounts of the collateral fees for the recipients
 }

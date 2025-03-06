@@ -7,7 +7,7 @@ import {IPoolManager} from '@uniswap/v4-core/src/interfaces/IPoolManager.sol';
 import {IPositionManager} from '@uniswap/v4-periphery/src/interfaces/IPositionManager.sol';
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {IAgentLaunchPool} from "./IAgentLaunchPool.sol";
+import {IAgentLaunchPool} from "./interfaces/IAgentLaunchPool.sol";
 import {AgentUniswapHookUpgradeable} from "./AgentUniswapHookUpgradeable.sol";
 import {FeeInfo} from "./types/FeeInfo.sol";
 
@@ -42,18 +42,20 @@ contract AgentFactory is AgentUniswapHookUpgradeable, OwnableUpgradeable, UUPSUp
     }
 
     function deploy(
+        address _launchPoolImplementation,
         IAgentLaunchPool.TokenInfo memory _tokenInfo,
         IAgentLaunchPool.LaunchPoolInfo memory _launchPoolInfo,
-        IAgentLaunchPool.DistributionInfo memory _distributionInfo, 
-        FeeInfo memory _feeInfo,
-        address _launchPoolImplementation
+        IAgentLaunchPool.UniswapPoolInfo memory _uniswapPoolInfo,
+        IAgentLaunchPool.AgentDistributionInfo memory _distributionInfo,
+        FeeInfo memory _feeInfo
     ) external virtual onlyOwner returns(address) {
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(_launchPoolImplementation), 
+            _launchPoolImplementation, 
             abi.encodeCall(IAgentLaunchPool.initialize, (
                 owner(),
                 _tokenInfo,
                 _launchPoolInfo,
+                _uniswapPoolInfo,
                 _distributionInfo,
                 positionManager
             ))

@@ -9,11 +9,10 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IPositionManager} from '@uniswap/v4-periphery/src/interfaces/IPositionManager.sol';
 
-import {AgentToken} from "./AgentToken.sol";
+import {IAgentToken} from "./interfaces/IAgentToken.sol";
+import {IAgentStaking} from "./interfaces/IAgentStaking.sol";
 import {AirdropClaim} from "./AirdropClaim.sol";
-import {AgentStaking} from "./AgentStaking.sol";
-import {FeeInfo} from "./types/FeeInfo.sol";
-import {IAgentLaunchPool} from "./IAgentLaunchPool.sol";
+import {IAgentLaunchPool} from "./interfaces/IAgentLaunchPool.sol";
 import {UniswapPoolDeployer} from "./UniswapPoolDeployer.sol";
 
 /// @title AgentLaunchPool
@@ -31,7 +30,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     using SafeERC20 for IERC20;
 
     error AlreadyDeployed();
-    error NoCollateralToDeploy();
+    error NotEnoughCollateralToDeploy();
     error NotEnoughTokensToDeploy();
     error AlreadyLaunched();
     error LengthMismatch();
@@ -45,13 +44,14 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     error InvalidCollateral();
 
     event LiquidityPoolCreated(address pair);
-    event Claim(address indexed recipient, address claimer, uint256 ethDeposited, uint256 amountClaimed);
+    event Claim(address indexed recipient, address claimer, uint256 deposit, uint256 amountClaimed);
     event Deposit(address indexed beneficiary, address indexed depositor, uint256 amount);
     event ReclaimDeposits(address indexed sender, uint256 amount);
 
     TokenInfo public tokenInfo;
     LaunchPoolInfo public launchPoolInfo;
-    DistributionInfo public distributionInfo;
+    UniswapPoolInfo public uniswapPoolInfo;
+    AgentDistributionInfo public distributionInfo;
     address public agentFactory;
     IPositionManager public uniswapPositionManager;
 
@@ -71,7 +71,8 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         address _owner,
         TokenInfo memory _tokenInfo,
         LaunchPoolInfo memory _launchPoolInfo,
-        DistributionInfo memory _distributionInfo,
+        IAgentLaunchPool.UniswapPoolInfo memory _uniswapPoolInfo,
+        AgentDistributionInfo memory _distributionInfo,
         IPositionManager _uniswapPositionManager
     ) external initializer {
         __Ownable_init(_owner);
@@ -84,6 +85,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         agentFactory = msg.sender;
         tokenInfo = _tokenInfo;
         launchPoolInfo = _launchPoolInfo;
+        uniswapPoolInfo = _uniswapPoolInfo;
         distributionInfo = _distributionInfo;
         uniswapPositionManager = _uniswapPositionManager;
 
@@ -116,6 +118,8 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         _deployAgentStaking(contractOwner, agentTokenAddress);
 
         _setupInitialLiquidity(agentTokenAddress, launchPoolInfo.collateral);
+
+        _distributeCollateral();
     }
 
     function computeAgentTokenAddress() external virtual returns(address) {
@@ -137,7 +141,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
             airdropAmounts[i + 1] = distributionInfo.basisAmounts[i] * tokenInfo.totalSupply / 10000;
         }
 
-        bytes memory tokenCtorArgs = abi.encodeCall(AgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, tokenInfo.owner, airdropRecipients, airdropAmounts));
+        bytes memory tokenCtorArgs = abi.encodeCall(IAgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, tokenInfo.owner, airdropRecipients, airdropAmounts));
         bytes memory proxyCtorArgs = abi.encode(tokenInfo.tokenImplementation, tokenCtorArgs);
 
         return computeCreate2Address(address(this), bytes32(0), type(ERC1967Proxy).creationCode, proxyCtorArgs);
@@ -182,14 +186,21 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
             revert DepositsClosed();
         }
 
-        if (totalDeposited + msg.value > launchPoolInfo.maxAmountForLaunch) {
+        if (totalDeposited >= launchPoolInfo.maxAmountForLaunch) {
             revert MaxAmountReached();
         }
 
-        totalDeposited += msg.value;
-        deposits[beneficiary] += msg.value;
+        uint256 maxAmountDepositable = launchPoolInfo.maxAmountForLaunch - totalDeposited;
+        uint256 depositAmount = msg.value > maxAmountDepositable ? maxAmountDepositable : msg.value;
 
-        emit Deposit(beneficiary, msg.sender, msg.value);
+        totalDeposited += depositAmount;
+        deposits[beneficiary] += depositAmount;
+
+        if (depositAmount < msg.value) {
+            payable(beneficiary).call{value: msg.value - depositAmount}("");
+        }
+
+        emit Deposit(beneficiary, msg.sender, depositAmount);
     }
 
     /// @notice Deposit ERC20 for the beneficiary to receive Agent Tokens after the launch
@@ -204,21 +215,24 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
             revert DepositsClosed();
         }
 
-        if (totalDeposited + amount > launchPoolInfo.maxAmountForLaunch) {
+        if (totalDeposited >= launchPoolInfo.maxAmountForLaunch) {
             revert MaxAmountReached();
         }
 
-        IERC20(launchPoolInfo.collateral).safeTransferFrom(msg.sender, address(this), amount);
+        uint256 maxAmountDepositable = launchPoolInfo.maxAmountForLaunch - totalDeposited;
+        uint256 depositAmount = amount > maxAmountDepositable ? maxAmountDepositable : amount;
 
-        totalDeposited += amount;
-        deposits[beneficiary] += amount;
+        IERC20(launchPoolInfo.collateral).safeTransferFrom(msg.sender, address(this), depositAmount);
 
-        emit Deposit(beneficiary, msg.sender, amount);
+        totalDeposited += depositAmount;
+        deposits[beneficiary] += depositAmount;
+
+        emit Deposit(beneficiary, msg.sender, depositAmount);
     }
 
     /// @notice Reclaim deposits if the launch has failed
     /// The launch has failed if the time window has passed and the minimum amount has not been reached
-    function reclaimDeposits() external {
+    function reclaimDepositsFor(address payable beneficiary) external {
         if (!_hasTimeWindowPassed()) {
             revert TimeWindowNotPassed();
         }
@@ -227,20 +241,20 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
             revert MinAmountReached();
         }
 
-        if (deposits[msg.sender] == 0) {
+        if (deposits[beneficiary] == 0) {
             revert NotDeposited();
         }
 
-        uint256 amount = deposits[msg.sender];
-        deposits[msg.sender] = 0;
+        uint256 amount = deposits[beneficiary];
+        deposits[beneficiary] = 0;
 
         if (address(launchPoolInfo.collateral) == address(0)) {
-            payable(msg.sender).call{value: amount}("");
+            beneficiary.call{value: amount}("");
         } else {
-            IERC20(launchPoolInfo.collateral).safeTransfer(msg.sender, amount);
+            IERC20(launchPoolInfo.collateral).safeTransfer(beneficiary, amount);
         }
 
-        emit ReclaimDeposits(msg.sender, amount);
+        emit ReclaimDeposits(beneficiary, amount);
     }
 
     /// @notice Fallback function to deposit ETH
@@ -273,18 +287,18 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
             return false;
         }
 
-        uint256 ethDeposited = deposits[_recipient];
+        uint256 deposit = deposits[_recipient];
 
-        if (ethDeposited == 0) {
+        if (deposit == 0) {
             return false;
         }
 
-        uint256 amountToTransfer = (distributionInfo.launchPoolBasisAmount * tokenInfo.totalSupply / 10000) * ethDeposited / totalDeposited;
+        uint256 amountToTransfer = (distributionInfo.launchPoolBasisAmount * tokenInfo.totalSupply / 10000) * deposit / totalDeposited;
 
         deposits[_recipient] = 0;
         IERC20(agentToken).safeTransfer(_recipient, amountToTransfer);
 
-        emit Claim(_recipient, msg.sender, ethDeposited, amountToTransfer);
+        emit Claim(_recipient, msg.sender, deposit, amountToTransfer);
 
         return true;
     }
@@ -313,7 +327,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
 
         // Deploy the proxy contract
         ERC1967Proxy proxy = new ERC1967Proxy{salt: bytes32(0)}(
-            tokenInfo.tokenImplementation, abi.encodeCall(AgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, _owner, airdropRecipients, airdropAmounts))
+            tokenInfo.tokenImplementation, abi.encodeCall(IAgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, _owner, airdropRecipients, airdropAmounts))
         );
 
         agentToken = address(proxy);
@@ -331,7 +345,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
 
         // Deploy the proxy contract
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(tokenInfo.stakingImplementation), abi.encodeCall(AgentStaking.initialize, (_owner, _agentTokenAddress))
+            address(tokenInfo.stakingImplementation), abi.encodeCall(IAgentStaking.initialize, (_owner, _agentTokenAddress))
         );
 
         agentStaking = address(proxy);
@@ -342,8 +356,8 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     /// @param _agentTokenAddress The address of the agent token
     /// @dev We burn the LP tokens by sending them to the 0 address
     function _setupInitialLiquidity(address _agentTokenAddress, address _collateral) internal virtual {
-        uint256 launchPoolAmount = distributionInfo.launchPoolBasisAmount * tokenInfo.totalSupply / 10000;
-        uint256 uniswapPoolAmount = distributionInfo.uniswapPoolBasisAmount * tokenInfo.totalSupply / 10000;
+        uint256 launchPoolAmount = distributionInfo.launchPoolBasisAmount * tokenInfo.totalSupply / 10_000;
+        uint256 uniswapPoolAmount = distributionInfo.uniswapPoolBasisAmount * tokenInfo.totalSupply / 10_000;
 
         uint256 tokenBalance = IERC20(_agentTokenAddress).balanceOf(address(this));
         uint256 collateralBalance = _collateral == address(0)
@@ -354,14 +368,10 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
             revert NotEnoughTokensToDeploy();
         }
 
-        if (collateralBalance == 0) {
-            revert NoCollateralToDeploy();
-        }
+        uint256 requiredCollateralAmount = launchPoolInfo.collateralUniswapPoolBasisAmount * totalDeposited / 10_000;
 
-        IERC20(_agentTokenAddress).approve(address(agentFactory), uniswapPoolAmount);
-        
-        if (address(_collateral) != address(0)) {
-            IERC20(_collateral).approve(address(agentFactory), collateralBalance);
+        if (collateralBalance < requiredCollateralAmount) {
+            revert NotEnoughCollateralToDeploy();
         }
 
         _createPoolAndAddLiquidity(
@@ -371,13 +381,29 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
                 agentToken: _agentTokenAddress,
                 collateralAmount: collateralBalance,
                 agentTokenAmount: uniswapPoolAmount,
-                lpRecipient: address(0),
-                lpFee: 0,
-                tickSpacing: 200,
-                startingPrice: 1 * 2**96,
+                lpRecipient: uniswapPoolInfo.lpRecipient,
+                lpFee: uniswapPoolInfo.lpFee,
+                tickSpacing: uniswapPoolInfo.tickSpacing,
+                startingPrice: uniswapPoolInfo.startingPrice,
                 hook: agentFactory
             })
         );
+    }
+
+    function _distributeCollateral() internal virtual {
+        uint256 length = launchPoolInfo.collateralRecipients.length;
+
+        if (launchPoolInfo.collateral == address(0)) {
+            for (uint256 i = 0; i < length; i++) {
+                uint256 amount = launchPoolInfo.collateralBasisAmounts[i] * totalDeposited / 10_000;
+                payable(launchPoolInfo.collateralRecipients[i]).call{value: amount}("");
+            }
+        } else {
+            for (uint256 i = 0; i < length; i++) {
+                uint256 amount = launchPoolInfo.collateralBasisAmounts[i] * totalDeposited / 10_000;
+                IERC20(launchPoolInfo.collateral).safeTransfer(launchPoolInfo.collateralRecipients[i], amount);
+            }
+        }
     }
 
     /// @notice Check if the time window has passed

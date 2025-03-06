@@ -38,9 +38,9 @@ import {AgentToken} from "../src/AgentToken.sol";
 import {AgentStaking} from "../src/AgentStaking.sol";
 import {AirdropClaim} from "../src/AirdropClaim.sol";
 import {AgentLaunchPool} from "../src/AgentLaunchPool.sol";
-import {IAgentLaunchPool} from "../src/IAgentLaunchPool.sol";
+import {IAgentLaunchPool} from "../src/interfaces/IAgentLaunchPool.sol";
 import {AgentFactory} from "../src/AgentFactory.sol";
-import {AgentFactoryDeployer} from "./AgentFactoryDeployer.sol";
+import {AgentFactoryDeployer} from "../src/AgentFactoryDeployer.sol";
 import {FeeInfo} from "../src/types/FeeInfo.sol";
 
 contract AgentFactoryTest is Test, AgentFactoryDeployer {
@@ -67,6 +67,10 @@ contract AgentFactoryTest is Test, AgentFactoryDeployer {
     }
 
     function test_factory() public {
+        _deployLaunchPool();
+    }
+
+    function _deployLaunchPool() internal {
         address collateral = address(0);
 
         IAgentLaunchPool.TokenInfo memory tokenInfo = IAgentLaunchPool.TokenInfo({
@@ -77,28 +81,44 @@ contract AgentFactoryTest is Test, AgentFactoryDeployer {
             tokenImplementation: agentTokenImplementation,
             stakingImplementation: agentStakingImplementation
         });
+
+        address[] memory collateralRecipients = new address[](2);
+        collateralRecipients[0] = dao;
+        collateralRecipients[1] = agentWallet;
+
+        uint256[] memory collateralBasisAmounts = new uint256[](2);
+        collateralBasisAmounts[0] = 1000;
+        collateralBasisAmounts[1] = 2500;
+
         IAgentLaunchPool.LaunchPoolInfo memory launchPoolInfo = IAgentLaunchPool.LaunchPoolInfo({
             collateral: collateral,
             timeWindow: 7 days,
             minAmountForLaunch: 1 ether,
-            maxAmountForLaunch: 10 ether
+            maxAmountForLaunch: 10 ether,
+            collateralUniswapPoolBasisAmount: 6500,
+            collateralRecipients: collateralRecipients,
+            collateralBasisAmounts: collateralBasisAmounts
+        });
+
+        IAgentLaunchPool.UniswapPoolInfo memory uniswapPoolInfo = IAgentLaunchPool.UniswapPoolInfo({
+            lpRecipient: dao,
+            lpFee: 500,
+            tickSpacing: 200,
+            startingPrice: 1 * 2**96
         });
 
         address[] memory recipients = new address[](2);
         recipients[0] = dao;
         recipients[1] = agentWallet;
         uint256[] memory basisAmounts = new uint256[](2);
-        basisAmounts[0] = 500;
-        basisAmounts[1] = 500;
+        basisAmounts[0] = 1500;
+        basisAmounts[1] = 2000;
 
-        uint256 launchPoolBasisAmount = 7500;
-        uint256 uniswapPoolBasisAmount = 1500;
-
-        IAgentLaunchPool.DistributionInfo memory distributionInfo = IAgentLaunchPool.DistributionInfo({
+        IAgentLaunchPool.AgentDistributionInfo memory distributionInfo = IAgentLaunchPool.AgentDistributionInfo({
             recipients: recipients,
             basisAmounts: basisAmounts,
-            launchPoolBasisAmount: launchPoolBasisAmount,
-            uniswapPoolBasisAmount: uniswapPoolBasisAmount
+            launchPoolBasisAmount: 2500,
+            uniswapPoolBasisAmount: 4000
         });
 
         address[] memory feeRecipients = new address[](2);
@@ -116,10 +136,10 @@ contract AgentFactoryTest is Test, AgentFactoryDeployer {
             basisAmounts: feeBasisAmounts
         });
 
-        vm.prank(owner);
         address launchPoolImplementation = address(new AgentLaunchPool());
 
-        address pool = factory.deploy(tokenInfo, launchPoolInfo, distributionInfo, feeInfo, launchPoolImplementation); 
+        vm.prank(owner);
+        address pool = factory.deploy(tokenInfo, launchPoolInfo, uniswapPoolInfo, distributionInfo, feeInfo, launchPoolImplementation); 
     }
 
     function swapExactInputSingle(

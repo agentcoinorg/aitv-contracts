@@ -46,12 +46,12 @@ abstract contract AgentUniswapHookUpgradeable is BaseHookUpgradeable {
 
         uint256 totalFee;
         if (isBurn) {
-            totalFee = swapAmount * fees.burnBasisAmount / 10000;
+            totalFee = swapAmount * fees.burnBasisAmount / 10_000;
             poolManager.take(feeCurrency, address(0), totalFee);
         } else {
             uint256 length = fees.recipients.length;
             for (uint256 i = 0; i < length; i++) {
-                uint256 fee = swapAmount * fees.basisAmounts[i] / 10000;
+                uint256 fee = swapAmount * fees.basisAmounts[i] / 10_000;
                 totalFee += fee;
                 poolManager.take(feeCurrency, fees.recipients[i], fee);
             }

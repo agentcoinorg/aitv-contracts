@@ -5,7 +5,7 @@ import { HookMiner } from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
 import { Hooks } from '@uniswap/v4-core/src/libraries/Hooks.sol';
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {AgentFactory} from "../src/AgentFactory.sol";
+import {AgentFactory} from "./AgentFactory.sol";
 
 abstract contract AgentFactoryDeployer {
     function _deployAgentFactory(address _owner, address _uniswapPoolManager, address _uniswapPositionManager) internal returns(AgentFactory) {
