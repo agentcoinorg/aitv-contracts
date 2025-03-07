@@ -8,12 +8,54 @@ import {Hooks, IHooks} from '@uniswap/v4-core/src/libraries/Hooks.sol';
 import {IPoolManager} from '@uniswap/v4-core/src/interfaces/IPoolManager.sol';
 import {PoolId, PoolIdLibrary} from '@uniswap/v4-core/src/types/PoolId.sol';
 import {PoolKey} from '@uniswap/v4-core/src/types/PoolKey.sol';
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {BaseHookUpgradeable} from "./BaseHookUpgradeable.sol";
-import {FeeInfo} from "./types/FeeInfo.sol";
+import {IFeeSetter} from "./interfaces/IFeeSetter.sol";
+import {UniswapFeeInfo} from "./types/UniswapFeeInfo.sol";
 
-abstract contract AgentUniswapHookUpgradeable is BaseHookUpgradeable {
+contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgradeable, IFeeSetter {
     error CannotBeInitializedDirectly();
+    error OnlyOwnerOrController();
+
+    IPoolManager public poolManager;
+    address public controller;
+    mapping(bytes32 => UniswapFeeInfo) public fees;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
+        address _owner,
+        address _controller,
+        address _uniswapPoolManager
+    ) external initializer {
+        __Ownable_init(_owner);
+        __UUPSUpgradeable_init();
+
+        poolManager = IPoolManager(_uniswapPoolManager);
+        controller = _controller;
+        validateHookAddress(this);
+    }
+
+    function setController(address _controller) external virtual onlyOwner {
+        controller = _controller;
+    }
+
+    function setFeesForPair(address _tokenA, address _tokenB, UniswapFeeInfo calldata _uniswapFeeInfo) external virtual {
+        if (msg.sender != owner() && msg.sender != controller) {
+            revert OnlyOwnerOrController();
+        }
+
+        address currency0 = _tokenA < _tokenB ? _tokenA : _tokenB;
+        address currency1 = _tokenA < _tokenB ? _tokenB : _tokenA;
+
+        bytes32 key = keccak256(abi.encodePacked(currency0, currency1));
+        fees[key] = _uniswapFeeInfo;
+    }
 
     /**
      * The hook called before the state of a pool is initialized. Prevents external contracts
@@ -29,16 +71,14 @@ abstract contract AgentUniswapHookUpgradeable is BaseHookUpgradeable {
         IPoolManager.SwapParams calldata _params,
         bytes calldata _hookData
     ) internal virtual override returns (bytes4, BeforeSwapDelta, uint24) {
-        IPoolManager poolManager = _getPoolManager();
-
         uint256 swapAmount = _params.amountSpecified < 0
             ? uint256(-_params.amountSpecified)
             : uint256(_params.amountSpecified);
 
         Currency feeCurrency = _params.zeroForOne ? _key.currency0 : _key.currency1;
 
-        FeeInfo memory fees = _getFeesForPair(Currency.unwrap(_key.currency0), Currency.unwrap(_key.currency1));
-        address collateral = fees.collateral;
+        UniswapFeeInfo memory pairFees = _getFeesForPair(Currency.unwrap(_key.currency0), Currency.unwrap(_key.currency1));
+        address collateral = pairFees.collateral;
 
         bool isBurn = _params.zeroForOne 
             ? Currency.unwrap(_key.currency0) == collateral
@@ -46,14 +86,14 @@ abstract contract AgentUniswapHookUpgradeable is BaseHookUpgradeable {
 
         uint256 totalFee;
         if (isBurn) {
-            totalFee = swapAmount * fees.burnBasisAmount / 10_000;
+            totalFee = swapAmount * pairFees.burnBasisAmount / 10_000;
             poolManager.take(feeCurrency, address(0), totalFee);
         } else {
-            uint256 length = fees.recipients.length;
+            uint256 length = pairFees.recipients.length;
             for (uint256 i = 0; i < length; i++) {
-                uint256 fee = swapAmount * fees.basisAmounts[i] / 10_000;
+                uint256 fee = swapAmount * pairFees.basisAmounts[i] / 10_000;
                 totalFee += fee;
-                poolManager.take(feeCurrency, fees.recipients[i], fee);
+                poolManager.take(feeCurrency, pairFees.recipients[i], fee);
             }
         }
 
@@ -83,5 +123,14 @@ abstract contract AgentUniswapHookUpgradeable is BaseHookUpgradeable {
         });
     }
 
-    function _getFeesForPair(address currency0, address currency1) internal view virtual returns (FeeInfo memory);
+    function _getFeesForPair(address currency0, address currency1) internal view virtual returns (UniswapFeeInfo memory) {
+        bytes32 key = keccak256(abi.encodePacked(currency0, currency1));
+        return fees[key];
+    }
+
+    function _getPoolManager() internal view virtual override returns (IPoolManager) {
+        return poolManager;
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 }

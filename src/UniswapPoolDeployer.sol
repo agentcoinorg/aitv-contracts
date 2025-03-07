@@ -28,6 +28,7 @@ abstract contract UniswapPoolDeployer {
         int24 tickSpacing; 
         uint160 startingPrice; 
         address hook;
+        address permit2;
     }
 
     struct DeploymentInfo {
@@ -41,8 +42,6 @@ abstract contract UniswapPoolDeployer {
     function _createPoolAndAddLiquidity(
         PoolInfo memory _poolInfo
     ) internal virtual returns(PoolKey memory) {
-        address permit2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
-
         DeploymentInfo memory deploymentInfo = DeploymentInfo({
             amount0Max: _poolInfo.collateral < _poolInfo.agentToken ? _poolInfo.collateralAmount : _poolInfo.agentTokenAmount,
             amount1Max: _poolInfo.collateral < _poolInfo.agentToken ? _poolInfo.agentTokenAmount : _poolInfo.collateralAmount,
@@ -102,12 +101,12 @@ abstract contract UniswapPoolDeployer {
 
         // Approve ERC20 transfers via Permit2
         if (!deploymentInfo.isNativeCollateral) {
-            IERC20(_poolInfo.collateral).approve(address(permit2), type(uint256).max);
-            IAllowanceTransfer(permit2).approve(_poolInfo.collateral, address(_poolInfo.positionManager), type(uint160).max, type(uint48).max);
+            IERC20(_poolInfo.collateral).approve(address(_poolInfo.permit2), type(uint256).max);
+            IAllowanceTransfer(_poolInfo.permit2).approve(_poolInfo.collateral, address(_poolInfo.positionManager), type(uint160).max, type(uint48).max);
         }
 
-        IERC20(_poolInfo.agentToken).approve(address(permit2), type(uint256).max);
-        IAllowanceTransfer(permit2).approve(_poolInfo.agentToken, address(_poolInfo.positionManager), type(uint160).max, type(uint48).max);
+        IERC20(_poolInfo.agentToken).approve(address(_poolInfo.permit2), type(uint256).max);
+        IAllowanceTransfer(_poolInfo.permit2).approve(_poolInfo.agentToken, address(_poolInfo.positionManager), type(uint160).max, type(uint48).max);
 
         // Execute the transaction
         if (deploymentInfo.isNativeCollateral) {

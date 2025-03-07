@@ -5,19 +5,17 @@ import { HookMiner } from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
 import { Hooks } from '@uniswap/v4-core/src/libraries/Hooks.sol';
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {AgentFactory} from "./AgentFactory.sol";
+import {AgentUniswapHook} from "./AgentUniswapHook.sol";
 
-abstract contract AgentFactoryDeployer {
-    function _deployAgentFactory(address _owner, address _uniswapPoolManager, address _uniswapPositionManager) internal returns(AgentFactory) {
-        AgentFactory implementation = new AgentFactory();
+abstract contract AgentUniswapHookDeployer {
+    function _deployAgentUniswapHook(address _owner, address _controller, address _uniswapPoolManager) internal returns(AgentUniswapHook) {
+        AgentUniswapHook implementation = new AgentUniswapHook();
 
         uint160 flags = uint160(
             Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
 
-        address feeProvider = address(0);
-
-        bytes memory data = abi.encodeCall(AgentFactory.initialize, (_owner, _uniswapPoolManager, _uniswapPositionManager));
+        bytes memory data = abi.encodeCall(AgentUniswapHook.initialize, (_owner, _controller, _uniswapPoolManager));
 
         bytes memory constructorArgs = abi.encode(implementation, data);
         (address foundAddress, bytes32 salt) =
@@ -27,6 +25,6 @@ abstract contract AgentFactoryDeployer {
 
         require(address(proxy) == foundAddress, "Deployed address does not match");
 
-        return AgentFactory(foundAddress);
+        return AgentUniswapHook(foundAddress);
     }
 }

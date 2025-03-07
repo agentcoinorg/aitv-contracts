@@ -4,15 +4,19 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IPositionManager} from '@uniswap/v4-periphery/src/interfaces/IPositionManager.sol';
 
 import {IAgentToken} from "./interfaces/IAgentToken.sol";
 import {IAgentStaking} from "./interfaces/IAgentStaking.sol";
-import {AirdropClaim} from "./AirdropClaim.sol";
-import {IAgentLaunchPool} from "./interfaces/IAgentLaunchPool.sol";
+import {
+    IAgentLaunchPool,
+    TokenInfo,
+    LaunchPoolInfo,
+    UniswapPoolInfo,
+    AgentDistributionInfo
+} from "./interfaces/IAgentLaunchPool.sol";
 import {UniswapPoolDeployer} from "./UniswapPoolDeployer.sol";
 
 /// @title AgentLaunchPool
@@ -71,7 +75,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         address _owner,
         TokenInfo memory _tokenInfo,
         LaunchPoolInfo memory _launchPoolInfo,
-        IAgentLaunchPool.UniswapPoolInfo memory _uniswapPoolInfo,
+        UniswapPoolInfo memory _uniswapPoolInfo,
         AgentDistributionInfo memory _distributionInfo,
         IPositionManager _uniswapPositionManager
     ) external initializer {
@@ -385,7 +389,8 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
                 lpFee: uniswapPoolInfo.lpFee,
                 tickSpacing: uniswapPoolInfo.tickSpacing,
                 startingPrice: uniswapPoolInfo.startingPrice,
-                hook: agentFactory
+                hook: agentFactory,
+                permit2: uniswapPoolInfo.permit2
             })
         );
     }
