@@ -96,7 +96,7 @@ abstract contract UniswapPoolDeployer {
         params[1] = abi.encodeWithSelector(
             IPositionManager.modifyLiquidities.selector,
             abi.encode(actions, mintParams),
-            block.timestamp + 60 // deadline
+            block.timestamp // deadline
         );
 
         // Approve ERC20 transfers via Permit2

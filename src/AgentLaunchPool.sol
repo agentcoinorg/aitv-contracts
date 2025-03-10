@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IPositionManager} from '@uniswap/v4-periphery/src/interfaces/IPositionManager.sol';
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IAgentToken} from "./interfaces/IAgentToken.sol";
 import {IAgentStaking} from "./interfaces/IAgentStaking.sol";
@@ -324,9 +325,9 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         }
 
         uint256[] memory airdropAmounts = new uint256[](length + 1);
-        airdropAmounts[0] = (distributionInfo.launchPoolBasisAmount + distributionInfo.uniswapPoolBasisAmount) * tokenInfo.totalSupply / 10000;
+        airdropAmounts[0] = (distributionInfo.launchPoolBasisAmount + distributionInfo.uniswapPoolBasisAmount) * tokenInfo.totalSupply / 1e4;
         for (uint256 i = 0; i < length; i++) {
-            airdropAmounts[i + 1] = distributionInfo.basisAmounts[i] * tokenInfo.totalSupply / 10000;
+            airdropAmounts[i + 1] = distributionInfo.basisAmounts[i] * tokenInfo.totalSupply / 1e4;
         }
 
         // Deploy the proxy contract
@@ -360,8 +361,8 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     /// @param _agentTokenAddress The address of the agent token
     /// @dev We burn the LP tokens by sending them to the 0 address
     function _setupInitialLiquidity(address _agentTokenAddress, address _collateral) internal virtual {
-        uint256 launchPoolAmount = distributionInfo.launchPoolBasisAmount * tokenInfo.totalSupply / 10_000;
-        uint256 uniswapPoolAmount = distributionInfo.uniswapPoolBasisAmount * tokenInfo.totalSupply / 10_000;
+        uint256 launchPoolAmount = distributionInfo.launchPoolBasisAmount * tokenInfo.totalSupply / 1e4;
+        uint256 uniswapPoolAmount = distributionInfo.uniswapPoolBasisAmount * tokenInfo.totalSupply / 1e4;
 
         uint256 tokenBalance = IERC20(_agentTokenAddress).balanceOf(address(this));
         uint256 collateralBalance = _collateral == address(0)
@@ -372,7 +373,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
             revert NotEnoughTokensToDeploy();
         }
 
-        uint256 requiredCollateralAmount = launchPoolInfo.collateralUniswapPoolBasisAmount * totalDeposited / 10_000;
+        uint256 requiredCollateralAmount = launchPoolInfo.collateralUniswapPoolBasisAmount * totalDeposited / 1e4;
 
         if (collateralBalance < requiredCollateralAmount) {
             revert NotEnoughCollateralToDeploy();
@@ -383,13 +384,18 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
                 positionManager: uniswapPositionManager,
                 collateral: _collateral,
                 agentToken: _agentTokenAddress,
-                collateralAmount: collateralBalance,
+                collateralAmount: requiredCollateralAmount,
                 agentTokenAmount: uniswapPoolAmount,
                 lpRecipient: uniswapPoolInfo.lpRecipient,
                 lpFee: uniswapPoolInfo.lpFee,
                 tickSpacing: uniswapPoolInfo.tickSpacing,
-                startingPrice: uniswapPoolInfo.startingPrice,
-                hook: agentFactory,
+                startingPrice: _calculateUniswapStartingPrice(
+                    _collateral,
+                    _agentTokenAddress,
+                    totalDeposited,  // We use the total collateral deposited and launchPoolAmount (agent tokens) since we want to starting price 
+                    launchPoolAmount // to be the same as what the launch pool depositors bought in for
+                ),
+                hook: uniswapPoolInfo.hook,
                 permit2: uniswapPoolInfo.permit2
             })
         );
@@ -400,12 +406,12 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
 
         if (launchPoolInfo.collateral == address(0)) {
             for (uint256 i = 0; i < length; i++) {
-                uint256 amount = launchPoolInfo.collateralBasisAmounts[i] * totalDeposited / 10_000;
+                uint256 amount = launchPoolInfo.collateralBasisAmounts[i] * totalDeposited / 1e4;
                 payable(launchPoolInfo.collateralRecipients[i]).call{value: amount}("");
             }
         } else {
             for (uint256 i = 0; i < length; i++) {
-                uint256 amount = launchPoolInfo.collateralBasisAmounts[i] * totalDeposited / 10_000;
+                uint256 amount = launchPoolInfo.collateralBasisAmounts[i] * totalDeposited / 1e4;
                 IERC20(launchPoolInfo.collateral).safeTransfer(launchPoolInfo.collateralRecipients[i], amount);
             }
         }
@@ -420,6 +426,23 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     }
 
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
+
+    function _calculateUniswapStartingPrice(
+        address _collateral,
+        address _agentToken,
+        uint256 _collateralAmount,
+        uint256 _agentAmount
+    ) internal pure returns (uint160) {
+        uint256 currency0Amount = _collateral < _agentToken ? _collateralAmount : _agentAmount;
+        uint256 currency1Amount = _collateral < _agentToken ? _agentAmount : _collateralAmount;
+
+        uint256 ratio = (currency0Amount * 1e18) / currency1Amount; // Multiply by 1e18 for precision
+        uint256 sqrtRatio = Math.sqrt(ratio); // Take square root
+        
+        uint256 startingPrice = (sqrtRatio * (2**96)) / 1e9; // Scale back to maintain precision
+
+        return uint160(startingPrice);
+    }
 
     function computeCreate2Address(
         address deployer,
