@@ -30,6 +30,7 @@ abstract contract BaseHookUpgradeable is IHooks, IImmutableState {
     /// @inheritdoc IHooks
     function beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
         external
+        virtual
         onlyPoolManager
         returns (bytes4)
     {
@@ -43,6 +44,7 @@ abstract contract BaseHookUpgradeable is IHooks, IImmutableState {
     /// @inheritdoc IHooks
     function afterInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96, int24 tick)
         external
+        virtual
         onlyPoolManager
         returns (bytes4)
     {
@@ -59,7 +61,7 @@ abstract contract BaseHookUpgradeable is IHooks, IImmutableState {
         PoolKey calldata key,
         IPoolManager.ModifyLiquidityParams calldata params,
         bytes calldata hookData
-    ) external onlyPoolManager returns (bytes4) {
+    ) external virtual onlyPoolManager returns (bytes4) {
         return _beforeAddLiquidity(sender, key, params, hookData);
     }
 
@@ -77,7 +79,7 @@ abstract contract BaseHookUpgradeable is IHooks, IImmutableState {
         PoolKey calldata key,
         IPoolManager.ModifyLiquidityParams calldata params,
         bytes calldata hookData
-    ) external onlyPoolManager returns (bytes4) {
+    ) external virtual onlyPoolManager returns (bytes4) {
         return _beforeRemoveLiquidity(sender, key, params, hookData);
     }
 
@@ -98,7 +100,7 @@ abstract contract BaseHookUpgradeable is IHooks, IImmutableState {
         BalanceDelta delta,
         BalanceDelta feesAccrued,
         bytes calldata hookData
-    ) external onlyPoolManager returns (bytes4, BalanceDelta) {
+    ) external virtual onlyPoolManager returns (bytes4, BalanceDelta) {
         return _afterAddLiquidity(sender, key, params, delta, feesAccrued, hookData);
     }
 
@@ -121,7 +123,7 @@ abstract contract BaseHookUpgradeable is IHooks, IImmutableState {
         BalanceDelta delta,
         BalanceDelta feesAccrued,
         bytes calldata hookData
-    ) external onlyPoolManager returns (bytes4, BalanceDelta) {
+    ) external virtual onlyPoolManager returns (bytes4, BalanceDelta) {
         return _afterRemoveLiquidity(sender, key, params, delta, feesAccrued, hookData);
     }
 
@@ -142,7 +144,7 @@ abstract contract BaseHookUpgradeable is IHooks, IImmutableState {
         PoolKey calldata key,
         IPoolManager.SwapParams calldata params,
         bytes calldata hookData
-    ) external onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
+    ) external virtual onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
         return _beforeSwap(sender, key, params, hookData);
     }
 
@@ -161,7 +163,7 @@ abstract contract BaseHookUpgradeable is IHooks, IImmutableState {
         IPoolManager.SwapParams calldata params,
         BalanceDelta delta,
         bytes calldata hookData
-    ) external onlyPoolManager returns (bytes4, int128) {
+    ) external virtual onlyPoolManager returns (bytes4, int128) {
         return _afterSwap(sender, key, params, delta, hookData);
     }
 
@@ -180,7 +182,7 @@ abstract contract BaseHookUpgradeable is IHooks, IImmutableState {
         uint256 amount0,
         uint256 amount1,
         bytes calldata hookData
-    ) external onlyPoolManager returns (bytes4) {
+    ) external virtual onlyPoolManager returns (bytes4) {
         return _beforeDonate(sender, key, amount0, amount1, hookData);
     }
 
@@ -199,7 +201,7 @@ abstract contract BaseHookUpgradeable is IHooks, IImmutableState {
         uint256 amount0,
         uint256 amount1,
         bytes calldata hookData
-    ) external onlyPoolManager returns (bytes4) {
+    ) external virtual onlyPoolManager returns (bytes4) {
         return _afterDonate(sender, key, amount0, amount1, hookData);
     }
 

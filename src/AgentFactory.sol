@@ -18,13 +18,14 @@ import {
 /// @notice The following is a contract to deploy agent launch pools
 contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
     error OnlyLaunchPool();
+    error LengthMismatch();
 
     event Deployed(address launchPool);
     event DeployedProposal(uint256 proposalId, address launchPool);
 
     IPositionManager public positionManager;
 
-    struct DeploymentProposal {
+    struct LaunchPoolProposal {
         address launchPoolImplementation;
         TokenInfo tokenInfo;
         LaunchPoolInfo launchPoolInfo;
@@ -33,7 +34,7 @@ contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
         UniswapFeeInfo uniswapFeeInfo;
     }
 
-    DeploymentProposal[] public proposals;
+    LaunchPoolProposal[] public proposals;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -58,7 +59,11 @@ contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
         AgentDistributionInfo memory _distributionInfo,
         UniswapFeeInfo memory _uniswapFeeInfo
     ) external returns(uint256) {
-        DeploymentProposal memory proposal = DeploymentProposal({
+        if (_uniswapFeeInfo.recipients.length != _uniswapFeeInfo.basisAmounts.length) {
+            revert LengthMismatch();
+        }
+
+        LaunchPoolProposal memory proposal = LaunchPoolProposal({
             launchPoolImplementation: _launchPoolImplementation,
             tokenInfo: _tokenInfo,
             launchPoolInfo: _launchPoolInfo,
@@ -73,7 +78,11 @@ contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
     }
 
     function deployProposal(uint256 proposalId) external virtual onlyOwner returns(address) {
-        DeploymentProposal memory proposal = proposals[proposalId];
+        LaunchPoolProposal memory proposal = proposals[proposalId];
+
+        if (proposal.uniswapFeeInfo.recipients.length != proposal.uniswapFeeInfo.basisAmounts.length) {
+            revert LengthMismatch();
+        }
 
         address pool = deploy(
             proposal.launchPoolImplementation,
@@ -97,6 +106,10 @@ contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
         AgentDistributionInfo memory _distributionInfo,
         UniswapFeeInfo memory _uniswapFeeInfo
     ) public virtual onlyOwner returns(address) {
+        if (_uniswapFeeInfo.recipients.length != _uniswapFeeInfo.basisAmounts.length) {
+            revert LengthMismatch();
+        }
+
         ERC1967Proxy proxy = new ERC1967Proxy(
             _launchPoolImplementation, 
             abi.encodeCall(IAgentLaunchPool.initialize, (

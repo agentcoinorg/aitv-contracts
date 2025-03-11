@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.28;
 
-import {BalanceDelta} from '@uniswap/v4-core/src/types/BalanceDelta.sol';
+import {BalanceDelta, toBalanceDelta} from '@uniswap/v4-core/src/types/BalanceDelta.sol';
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from '@uniswap/v4-core/src/types/BeforeSwapDelta.sol';
 import {Currency} from '@uniswap/v4-core/src/types/Currency.sol';
 import {Hooks, IHooks} from '@uniswap/v4-core/src/libraries/Hooks.sol';
@@ -57,12 +57,43 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
         fees[key] = _uniswapFeeInfo;
     }
 
+
     /**
-     * The hook called before the state of a pool is initialized. Prevents external contracts
-     * from initializing pools using our contract as a hook.
+     * Defines the Uniswap V4 hooks that are used by our implementation. This will determine
+     * the address that our contract **must** be deployed to for Uniswap V4. 
      */
-    function _beforeInitialize(address, PoolKey calldata, uint160) internal view virtual override returns (bytes4) {
-        revert CannotBeInitializedDirectly();
+    function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory) {
+        return Hooks.Permissions({
+            beforeInitialize: true,
+            afterInitialize: true,
+            beforeAddLiquidity: true,
+            afterAddLiquidity: true,
+            beforeRemoveLiquidity: true,
+            afterRemoveLiquidity: true,
+            beforeSwap: true,
+            afterSwap: true,
+            beforeDonate: true,
+            afterDonate: true,
+            beforeSwapReturnDelta: true,
+            afterSwapReturnDelta: true,
+            afterAddLiquidityReturnDelta: true,
+            afterRemoveLiquidityReturnDelta: true
+        });
+    }
+
+    function _getFeesForPair(address currency0, address currency1) internal view virtual returns (UniswapFeeInfo memory) {
+        bytes32 key = keccak256(abi.encodePacked(currency0, currency1));
+        return fees[key];
+    }
+
+    function _getPoolManager() internal view virtual override returns (IPoolManager) {
+        return poolManager;
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
+
+    function _beforeInitialize(address, PoolKey calldata, uint160) internal virtual override returns (bytes4) {
+        return BaseHookUpgradeable.beforeInitialize.selector;
     }
 
     function _beforeSwap(
@@ -100,37 +131,71 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
         return (BaseHookUpgradeable.beforeSwap.selector, toBeforeSwapDelta(int128(int256(totalFee)), 0), 0);
     }
 
-    /**
-     * Defines the Uniswap V4 hooks that are used by our implementation. This will determine
-     * the address that our contract **must** be deployed to for Uniswap V4. 
-     */
-    function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory) {
-        return Hooks.Permissions({
-            beforeInitialize: false,
-            afterInitialize: false,
-            beforeAddLiquidity: false,
-            afterAddLiquidity: false,
-            beforeRemoveLiquidity: false,
-            afterRemoveLiquidity: false,
-            beforeSwap: true,
-            afterSwap: false,
-            beforeDonate: false,
-            afterDonate: false,
-            beforeSwapReturnDelta: true,
-            afterSwapReturnDelta: false,
-            afterAddLiquidityReturnDelta: false,
-            afterRemoveLiquidityReturnDelta: false
-        });
+    function _afterInitialize(address, PoolKey calldata, uint160, int24) internal virtual override returns (bytes4) {
+        return BaseHookUpgradeable.afterInitialize.selector;
     }
 
-    function _getFeesForPair(address currency0, address currency1) internal view virtual returns (UniswapFeeInfo memory) {
-        bytes32 key = keccak256(abi.encodePacked(currency0, currency1));
-        return fees[key];
+    function _beforeAddLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, bytes calldata)
+        internal
+        virtual
+        override
+        returns (bytes4)
+    {
+        return BaseHookUpgradeable.beforeAddLiquidity.selector;
     }
 
-    function _getPoolManager() internal view virtual override returns (IPoolManager) {
-        return poolManager;
+    function _beforeRemoveLiquidity(
+        address,
+        PoolKey calldata,
+        IPoolManager.ModifyLiquidityParams calldata,
+        bytes calldata
+    ) internal virtual override returns (bytes4) {
+        return BaseHookUpgradeable.beforeRemoveLiquidity.selector;
     }
 
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
+    function _afterAddLiquidity(
+        address,
+        PoolKey calldata,
+        IPoolManager.ModifyLiquidityParams calldata,
+        BalanceDelta,
+        BalanceDelta,
+        bytes calldata
+    ) internal virtual override returns (bytes4, BalanceDelta) {
+        return (BaseHookUpgradeable.afterAddLiquidity.selector, toBalanceDelta(0, 0));
+    }
+
+    function _afterRemoveLiquidity(
+        address,
+        PoolKey calldata,
+        IPoolManager.ModifyLiquidityParams calldata,
+        BalanceDelta,
+        BalanceDelta,
+        bytes calldata
+    ) internal virtual override returns (bytes4, BalanceDelta) {
+        return (BaseHookUpgradeable.afterRemoveLiquidity.selector, toBalanceDelta(0, 0));
+    }
+
+    function _afterSwap(address, PoolKey calldata, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata)
+        internal
+        virtual
+        override
+        returns (bytes4, int128)
+    {
+        return (BaseHookUpgradeable.afterSwap.selector, 0);
+    }
+
+    function _beforeDonate(address, PoolKey calldata, uint256, uint256, bytes calldata)
+        internal
+        virtual
+        override
+        returns (bytes4)
+    {
+        return BaseHookUpgradeable.beforeDonate.selector;
+    }
+
+    function _afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) internal virtual override
+        returns (bytes4)
+    {
+        return BaseHookUpgradeable.afterDonate.selector;
+    }
 }

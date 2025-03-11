@@ -11,9 +11,7 @@ abstract contract AgentUniswapHookDeployer {
     function _deployAgentUniswapHook(address _owner, address _controller, address _uniswapPoolManager) internal returns(AgentUniswapHook) {
         AgentUniswapHook implementation = new AgentUniswapHook();
 
-        uint160 flags = uint160(
-            Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
-        );
+        uint160 flags = Hooks.ALL_HOOK_MASK;
 
         bytes memory data = abi.encodeCall(AgentUniswapHook.initialize, (_owner, _controller, _uniswapPoolManager));
 
