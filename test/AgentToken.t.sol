@@ -5,7 +5,6 @@ import {Test, console} from "forge-std/Test.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {HelperConfig} from "../script/HelperConfig.s.sol";
 import {AgentToken} from "../src/AgentToken.sol";
 
 contract AgentTokenTest is Test {

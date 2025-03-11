@@ -4,43 +4,25 @@ pragma solidity 0.8.28;
 import {Test, console} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import {IUniswapV2Factory} from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-import {IUniswapV2Pair} from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {PoolKey} from '@uniswap/v4-core/src/types/PoolKey.sol';
 
 import {AgentToken} from "../src/AgentToken.sol";
 import {AgentStaking} from "../src/AgentStaking.sol";
-import {AirdropClaim} from "../src/AirdropClaim.sol";
 import {AgentLaunchPool} from "../src/AgentLaunchPool.sol";
+import {AgentFactoryTestUtils} from "./helpers/AgentFactoryTestUtils.sol";
 
-contract AgentLaunchPoolTest is Test {
-    address owner = makeAddr("owner");
-    address uniswapRouter;
-    address agentWallet = makeAddr("agentWallet");
-    uint256 agentAmount = 300_000 * 1e18;
-    uint256 ownerAmount = 700_000 * 1e18;
-    uint256 launchPoolAmount = 2_500_000 * 1e18;
-    uint256 uniswapPoolAmount = 6_500_000 * 1e18;
-    uint256 totalSupply = 10_000_000 * 1e18;
-    uint256 timeWindow = 7 days;
-    uint256 minAmountForLaunch = 0.5 ether;
-    uint256 maxAmountForLaunch = 10 ether;
-
+contract AgentLaunchPoolTest is AgentFactoryTestUtils {
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
-        uniswapRouter = vm.envAddress("BASE_UNISWAP_ROUTER");
-    }
 
-    function test_canCreateLaunchPool() public {
-        _deployLaunchPool();
+        _deployDefaultContracts();
     }
 
     function test_canDeposit() public {
         address user = makeAddr("user");
         vm.deal(user, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         assertEq(pool.canDeposit(), true);
 
@@ -54,7 +36,7 @@ contract AgentLaunchPoolTest is Test {
         address user = makeAddr("user");
         vm.deal(user, 2 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         assertEq(pool.canDeposit(), true);
 
@@ -73,7 +55,7 @@ contract AgentLaunchPoolTest is Test {
 
         vm.deal(user, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         assertEq(pool.canDeposit(), true);
 
@@ -88,7 +70,7 @@ contract AgentLaunchPoolTest is Test {
         address user = makeAddr("user");
         vm.deal(user, 1.5 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
         pool.depositETH{value: 1 ether}();
@@ -109,7 +91,7 @@ contract AgentLaunchPoolTest is Test {
         vm.deal(user1, 1 ether);
         vm.deal(user2, 2 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user1);
         pool.depositETH{value: 1 ether}();
@@ -130,7 +112,7 @@ contract AgentLaunchPoolTest is Test {
         address user = makeAddr("user");
         vm.deal(user, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
 
@@ -147,12 +129,12 @@ contract AgentLaunchPoolTest is Test {
 
     function test_canLaunch() public {
         address user = makeAddr("user");
-        vm.deal(user, 1 ether);
+        vm.deal(user, 10000 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
-        pool.depositETH{value: 1 ether}();
+        pool.depositETH{value: 1000 ether}();
 
         vm.warp(block.timestamp + timeWindow);
 
@@ -163,16 +145,18 @@ contract AgentLaunchPoolTest is Test {
         assertNotEq(pool.agentStaking(), address(0));
 
         assertEq(IERC20(pool.agentToken()).totalSupply(), totalSupply);
-        assertEq(IERC20(pool.agentToken()).balanceOf(owner), ownerAmount);
+        assertEq(IERC20(pool.agentToken()).balanceOf(dao), agentDaoAmount);
         assertEq(IERC20(pool.agentToken()).balanceOf(agentWallet), agentAmount);
-        assertEq(IERC20(pool.agentToken()).balanceOf(address(pool)), launchPoolAmount);
+        assertEq(IERC20(pool.agentToken()).balanceOf(address(pool)) / 1e15, launchPoolAmount / 1e15); // Rounding because price calculations (unsiwap) are not exact
+        assertGt(IERC20(pool.agentToken()).balanceOf(address(pool)), launchPoolAmount);
 
-        assertEq(AgentToken(pool.agentToken()).name(), "Agent");
+        assertEq(AgentToken(pool.agentToken()).name(), "Agent Token");
         assertEq(AgentToken(pool.agentToken()).symbol(), "AGENT");
 
-        (uint112 reserveA, uint112 reserveB, uint totalLiquidity) = _getLiquidity(pool.agentToken(), IUniswapV2Router02(uniswapRouter).WETH());
-        assertEq(reserveA, uniswapPoolAmount);
-        assertEq(reserveB, pool.totalDeposited());
+        (uint256 reserveA, uint256 reserveB, uint totalLiquidity) = _getLiquidity(poolKey, address(0), pool.agentToken(), tickSpacing);
+        uint256 expectedUniswapCollateral = collateralUniswapPoolBasisAmount * pool.totalDeposited() / 1e4;
+        assertEq((expectedUniswapCollateral > reserveA ? expectedUniswapCollateral - reserveA : reserveA - expectedUniswapCollateral) / 1e15, 0); // Rounding
+        assertEq((uniswapPoolAmount > reserveB ? uniswapPoolAmount - reserveB : reserveB - uniswapPoolAmount) / 1e15, 0); // Rounding
         assertGt(totalLiquidity, 0);
     }
 
@@ -180,7 +164,7 @@ contract AgentLaunchPoolTest is Test {
         address user = makeAddr("user");
         vm.deal(user, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
         pool.depositETH{value: 1 ether}();
@@ -198,7 +182,7 @@ contract AgentLaunchPoolTest is Test {
         vm.deal(user1, 1 ether);
         vm.deal(user2, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user1);
         pool.depositETH{value: 1 ether}();
@@ -222,7 +206,7 @@ contract AgentLaunchPoolTest is Test {
         address user = makeAddr("user");
         vm.deal(user, 0.2 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
         pool.depositETH{value: 0.2 ether}();
@@ -237,7 +221,7 @@ contract AgentLaunchPoolTest is Test {
         address user = makeAddr("user");
         vm.deal(user, 0.2 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
         pool.depositETH{value: 0.2 ether}();
@@ -251,7 +235,7 @@ contract AgentLaunchPoolTest is Test {
         assertEq(pool.deposits(user), 0.2 ether);
         assertEq(user.balance, 0);
         
-        pool.reclaimDeposits();
+        pool.reclaimDepositsFor(payable(user));
 
         assertEq(pool.totalDeposited(), 0.2 ether);
         assertEq(pool.deposits(user), 0);
@@ -262,7 +246,7 @@ contract AgentLaunchPoolTest is Test {
         address user = makeAddr("user");
         vm.deal(user, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
         pool.depositETH{value: 1 ether}();
@@ -281,7 +265,7 @@ contract AgentLaunchPoolTest is Test {
         address user = makeAddr("user");
         vm.deal(user, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
         pool.depositETH{value: 1 ether}();
@@ -294,7 +278,7 @@ contract AgentLaunchPoolTest is Test {
         pool.claim(user);
 
         assertEq(pool.totalDeposited(), 1 ether);
-        assertEq(IERC20(pool.agentToken()).balanceOf(user), 1 ether * launchPoolAmount / 1 ether);
+        assertEq(IERC20(pool.agentToken()).balanceOf(user), launchPoolAmount);
     }
 
     function test_beneficiaryCanClaim() public {
@@ -302,7 +286,7 @@ contract AgentLaunchPoolTest is Test {
         address beneficiary = makeAddr("beneficiary");
         vm.deal(user, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
         pool.depositETHFor{value: 1 ether}(beneficiary);
@@ -314,7 +298,7 @@ contract AgentLaunchPoolTest is Test {
         pool.claim(beneficiary);
 
         assertEq(pool.totalDeposited(), 1 ether);
-        assertEq(IERC20(pool.agentToken()).balanceOf(beneficiary), 1 ether * launchPoolAmount / 1 ether);
+        assertEq(IERC20(pool.agentToken()).balanceOf(beneficiary), launchPoolAmount);
         assertEq(IERC20(pool.agentToken()).balanceOf(user), 0);
     }
 
@@ -326,7 +310,7 @@ contract AgentLaunchPoolTest is Test {
         vm.deal(user1, 1 ether);
         vm.deal(user2, 2 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user1);
         pool.depositETH{value: 1 ether}();
@@ -359,7 +343,7 @@ contract AgentLaunchPoolTest is Test {
         address user = makeAddr("user");
         vm.deal(user, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
         pool.depositETH{value: 1 ether}();
@@ -374,7 +358,7 @@ contract AgentLaunchPoolTest is Test {
         address user = makeAddr("user");
         vm.deal(user, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
         pool.depositETH{value: 1 ether}();
@@ -389,25 +373,28 @@ contract AgentLaunchPoolTest is Test {
     }
 
     function test_canBuyTokensOnUniswapAfterLaunch() public {
-        AgentLaunchPool pool = _launch();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _launch();
 
         address user = makeAddr("user");
         vm.deal(user, 1 ether);
 
         assertEq(IERC20(pool.agentToken()).balanceOf(user), 0);
 
-        _buyOnUniswap(user, 1 ether, pool.agentToken());
+        vm.startPrank(user);
+        _swapETHForERC20(user, poolKey, 1 ether);
         
         assertGt(IERC20(pool.agentToken()).balanceOf(user), 0);
     }
 
     function test_canSellTokensOnUniswapAfterLaunch() public {
-        AgentLaunchPool pool = _launch();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _launch();
 
         address user = makeAddr("user");
         vm.deal(user, 1 ether);
 
-        _buyOnUniswap(user, 1 ether, pool.agentToken());
+        vm.startPrank(user);
+       
+        _swapETHForERC20(user, poolKey, 1 ether);
 
         uint256 tokenBalance = IERC20(pool.agentToken()).balanceOf(user);
         uint256 amountToSell = tokenBalance / 3;
@@ -415,28 +402,29 @@ contract AgentLaunchPoolTest is Test {
 
         assertGt(tokenBalance, 0);
 
-        _sellOnUniswap(user, amountToSell, pool.agentToken());
+        _swapERC20ForETH(user, poolKey, amountToSell);
 
         assertEq(IERC20(pool.agentToken()).balanceOf(user), tokenBalance - amountToSell);
         assertGt(user.balance, ethBalance);
     }
 
     function test_canStakeAfterLaunch() public {
-        AgentLaunchPool pool = _launch();
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _launch();
 
         address user = makeAddr("user");
         vm.deal(user, 1 ether);
 
         address token = pool.agentToken();
 
-        _buyOnUniswap(user, 1 ether, token);
+        vm.startPrank(user);
+        
+        _swapETHForERC20(user, poolKey, 1 ether);
 
         AgentStaking staking = AgentStaking(pool.agentStaking());
 
         uint256 startingBalance = IERC20(pool.agentToken()).balanceOf(user);
         uint256 amount = startingBalance / 3;
 
-        vm.startPrank(user);
         IERC20(token).approve(address(staking), amount);
         staking.stake(amount);
     
@@ -444,140 +432,19 @@ contract AgentLaunchPoolTest is Test {
         assertEq(staking.getStakedAmount(user), amount);
     }
 
-    function _deployLaunchPool() internal returns (AgentLaunchPool) {
-        address[] memory recipients = new address[](2);
-        recipients[0] = owner;
-        recipients[1] = agentWallet;
-
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = ownerAmount;
-        amounts[1] = agentAmount;
-
-        string memory name = "Agent";
-        string memory symbol = "AGENT";
-
-        AgentLaunchPool.TokenMetadata memory tokenMetadata = AgentLaunchPool.TokenMetadata(
-            owner,
-            name,
-            symbol
-        );
-
-        AgentLaunchPool pool = new AgentLaunchPool(
-            tokenMetadata,
-            timeWindow,
-            minAmountForLaunch,
-            maxAmountForLaunch,
-            address(0),
-            launchPoolAmount,
-            uniswapPoolAmount,
-            uniswapRouter,
-            recipients,
-            amounts
-        );
-
-        assertEq(pool.launchPoolAmount(), launchPoolAmount);
-        assertEq(pool.uniswapPoolAmount(), uniswapPoolAmount);
-        assertEq(pool.recipients(0), owner);
-        assertEq(pool.recipients(1), agentWallet);
-        assertEq(pool.amounts(0), ownerAmount);
-        assertEq(pool.amounts(1), agentAmount);
-        assertEq(pool.tokenName(), name);
-        assertEq(pool.tokenSymbol(), symbol);
-        assertEq(pool.owner(), owner);
-        assertEq(pool.timeWindow(), timeWindow);
-
-        assertEq(pool.hasLaunched(), false);
-        assertEq(pool.launchPoolCreatedOn(), block.timestamp);
-        assertEq(pool.totalDeposited(), 0);
-        assertEq(pool.agentToken(), address(0));
-        assertEq(pool.agentStaking(), address(0));
-
-        return pool;
-    }
-
-    function _launch() internal returns (AgentLaunchPool) {
+    function _launch() internal returns (AgentLaunchPool, PoolKey memory) {
         address depositor = makeAddr("depositor");
         vm.deal(depositor, 1 ether);
 
-        AgentLaunchPool pool = _deployLaunchPool();
+        (AgentLaunchPool pool, PoolKey memory poolKey)= _deployDefaultLaunchPool(address(0));
 
-        vm.startPrank(depositor);
+        vm.prank(depositor);
         pool.depositETH{value: 1 ether}();
 
         vm.warp(block.timestamp + timeWindow);
 
         pool.launch();
 
-        return pool;
-    }
-
-    function _getLiquidity(address tokenA, address tokenB) internal view returns (uint112 reserveA, uint112 reserveB, uint totalLiquidity) {
-        address factory = IUniswapV2Router02(uniswapRouter).factory();
-        address pair = IUniswapV2Factory(factory).getPair(tokenA, tokenB);
-        require(pair != address(0), "Pair does not exist");
-
-        (uint112 reserve0, uint112 reserve1,) = IUniswapV2Pair(pair).getReserves();
-        totalLiquidity = IUniswapV2Pair(pair).totalSupply();
-
-        // Return correct reserve order based on token order
-        (reserveA, reserveB) = tokenA < tokenB ? (reserve0, reserve1) : (reserve1, reserve0);
-    }
-
-    function _buyOnUniswap(address user, uint256 ethAmount, address token) internal {
-        IUniswapV2Router02 router = IUniswapV2Router02(uniswapRouter);
-
-        address[] memory path = new address[](2);
-        path[0] = router.WETH();
-        path[1] = token;
-
-        uint256 startEthBalance = user.balance;
-        uint256 startTokenBalance = IERC20(token).balanceOf(user);
-
-        vm.startPrank(user);
-        router.swapExactETHForTokens{value: ethAmount}(
-            0,
-            path,
-            user,
-            block.timestamp
-        );
-
-        uint256 endEthBalance = user.balance;
-        uint256 endTokenBalance = IERC20(token).balanceOf(user);
-
-        assertEq(endEthBalance, startEthBalance - ethAmount);
-        assertGt(endTokenBalance, startTokenBalance);
-
-        vm.stopPrank();
-    }
-
-    function _sellOnUniswap(address user, uint256 tokenAmount, address token) internal {
-        IUniswapV2Router02 router = IUniswapV2Router02(uniswapRouter);
-
-        uint256 startEthBalance = user.balance;
-        uint256 startTokenBalance = IERC20(token).balanceOf(user);
-
-        vm.startPrank(user);
-        IERC20(token).approve(uniswapRouter, tokenAmount);
-
-        address[] memory path = new address[](2);
-
-        path[0] = address(token);
-        path[1] = router.WETH();
-
-        router.swapExactTokensForETH(
-            tokenAmount,
-            0,
-            path,
-            user,
-            block.timestamp
-        );
-
-        uint256 endEthBalance = user.balance;
-        uint256 endTokenBalance = IERC20(token).balanceOf(user);
-
-        assertGt(endEthBalance, startEthBalance);
-        assertEq(endTokenBalance, startTokenBalance - tokenAmount);
-  
-        vm.stopPrank();
+        return (pool, poolKey);
     }
 }

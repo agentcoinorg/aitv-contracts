@@ -11,6 +11,13 @@ import {IV4Router} from "@uniswap/v4-periphery/src/interfaces/IV4Router.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
 import {IUniversalRouter} from "@uniswap/universal-router/src/interfaces/IUniversalRouter.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IHooks} from '@uniswap/v4-core/src/libraries/Hooks.sol';
+import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {TransientStateLibrary} from "@uniswap/v4-core/src/libraries/TransientStateLibrary.sol";
+import {IPoolManager} from '@uniswap/v4-core/src/interfaces/IPoolManager.sol';
+import { TickMath } from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import { Currency } from '@uniswap/v4-core/src/types/Currency.sol';
 
 import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
 import {IAgentLaunchPool} from "../../src/interfaces/IAgentLaunchPool.sol";
@@ -24,17 +31,18 @@ import {AgentUniswapHookDeployer} from "../../src/AgentUniswapHookDeployer.sol";
 import {AgentUniswapHook} from "../../src/AgentUniswapHook.sol";
 import {AgentToken} from "../../src/AgentToken.sol";
 import {AgentStaking} from "../../src/AgentStaking.sol";
+import {UniswapTestUtils} from "./UniswapTestUtils.sol";
 
-abstract contract AgentFactoryTestUtils is Test, AgentUniswapHookDeployer {
-    address public uniswapPoolManager = vm.envAddress("BASE_POOL_MANAGER");
+abstract contract AgentFactoryTestUtils is Test, AgentUniswapHookDeployer, UniswapTestUtils {
+    using StateLibrary for IPoolManager;
+    using TransientStateLibrary for IPoolManager;
+    
     address public uniswapPositionManager = vm.envAddress("BASE_POSITION_MANAGER");
-    address public uniswapUniversalRouter = vm.envAddress("BASE_UNIVERSAL_ROUTER");
     address owner = makeAddr("owner");
     address agentWallet = makeAddr("agentWallet");
     address dao = makeAddr("dao");
     address agentTokenImpl;
     address agentStakingImpl;
-    address permit2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
     AgentFactory factory;
     AgentUniswapHook hook;
 
@@ -42,21 +50,37 @@ abstract contract AgentFactoryTestUtils is Test, AgentUniswapHookDeployer {
     string tokenName = "Agent Token";
     string tokenSymbol = "AGENT";
     uint256 totalSupply = 10_000_000 * 1e18;
-    uint256 daoCollateralBasisAmount = 1000;
-    uint256 agentWalletCollateralBasisAmount = 2500;
+    uint256 daoCollateralBasisAmount = 1_000;
+    uint256 agentWalletCollateralBasisAmount = 2_500;
     uint256 timeWindow = 7 days;
     uint256 minAmountForLaunch = 1 ether;
     uint256 maxAmountForLaunch = 10 ether;
-    uint256 collateralUniswapPoolBasisAmount = 6500;
+    
+    uint256 collateralUniswapPoolBasisAmount = 6_500;
+
     uint24 lpFee = 50;
     int24 tickSpacing = 200;
-    uint256 agentDaoBasisAmount = 1500;
-    uint256 agentWalletBasisAmount = 2000;
-    uint256 launchPoolBasisAmount = 2500;
-    uint256 uniswapPoolBasisAmount = 4000;
+
+    uint256 agentDaoBasisAmount = 1_500;
+    uint256 agentDaoAmount = 1_500_000 * 1e18; 
+
+    uint256 agentWalletBasisAmount = 2_000;
+    uint256 agentAmount = 2_000_000 * 1e18;
+
+    uint256 launchPoolBasisAmount = 4_000;
+    uint256 launchPoolAmount = 4_000_000 * 1e18;
+
+    uint256 uniswapPoolBasisAmount = 2_500;
+    uint256 uniswapPoolAmount = 2_500_000 * 1e18;
+
     uint256 burnBasisAmount = 100;
     uint256 daoFeeBasisAmount = 50;
     uint256 agentWalletFeeBasisAmount = 50;
+
+    constructor() {
+        uniswapPoolManager = vm.envAddress("BASE_POOL_MANAGER");
+        uniswapUniversalRouter = vm.envAddress("BASE_UNIVERSAL_ROUTER");
+    }
 
     function _deployAgentFactory(address _owner) internal returns(AgentFactory) {
         address agentFactoryImpl = address(new AgentFactory());
@@ -82,7 +106,7 @@ abstract contract AgentFactoryTestUtils is Test, AgentUniswapHookDeployer {
         hook = _deployAgentUniswapHook(owner, address(factory));
     }
 
-    function _deployDefaultLaunchPool(address collateral) internal returns (AgentLaunchPool) {
+    function _deployDefaultLaunchPool(address collateral) internal returns (AgentLaunchPool, PoolKey memory) {
         TokenInfo memory tokenInfo = TokenInfo({
             owner: tokenOwner,
             name: tokenName,
@@ -115,8 +139,7 @@ abstract contract AgentFactoryTestUtils is Test, AgentUniswapHookDeployer {
             hook: address(hook),
             lpRecipient: dao,
             lpFee: lpFee,
-            tickSpacing: tickSpacing,
-            startingPrice: 1 * 2**96
+            tickSpacing: tickSpacing
         });
 
         address[] memory recipients = new address[](2);
@@ -148,17 +171,11 @@ abstract contract AgentFactoryTestUtils is Test, AgentUniswapHookDeployer {
             basisAmounts: feeBasisAmounts
         });
 
-        address launchPoolImplementation = address(new AgentLaunchPool());
-
-        uint256 proposalId = factory.addProposal(launchPoolImplementation, tokenInfo, launchPoolInfo, uniswapPoolInfo, distributionInfo, uniswapFeeInfo);
+        uint256 proposalId = factory.addProposal(address(new AgentLaunchPool()), tokenInfo, launchPoolInfo, uniswapPoolInfo, distributionInfo, uniswapFeeInfo);
 
         vm.prank(owner);
         AgentLaunchPool pool = AgentLaunchPool(payable(factory.deployProposal(proposalId)));
 
-        assertEq(pool.tokenInfo(), tokenInfo);
-        assertEq(pool.launchPoolInfo(), launchPoolInfo);
-        assertEq(pool.uniswapPoolInfo(), uniswapPoolInfo);
-        assertEq(pool.distributionInfo(), distributionInfo);
         assertEq(pool.owner(), owner);
 
         assertEq(pool.hasLaunched(), false);
@@ -167,106 +184,14 @@ abstract contract AgentFactoryTestUtils is Test, AgentUniswapHookDeployer {
         assertEq(pool.agentToken(), address(0));
         assertEq(pool.agentStaking(), address(0));
 
-        return pool;
-    }
+        PoolKey memory poolKey = PoolKey({
+            currency0: Currency.wrap(launchPoolInfo.collateral < pool.computeAgentTokenAddress() ? launchPoolInfo.collateral : pool.computeAgentTokenAddress()),
+            currency1: Currency.wrap(launchPoolInfo.collateral < pool.computeAgentTokenAddress() ? pool.computeAgentTokenAddress() : launchPoolInfo.collateral),
+            fee: uniswapPoolInfo.lpFee,
+            tickSpacing: uniswapPoolInfo.tickSpacing,
+            hooks: IHooks(uniswapPoolInfo.hook)
+        });
 
-    function _buyOnUniswap(address user, uint256 ethAmount, address token) internal {
-        IUniswapV2Router02 router = IUniswapV2Router02(uniswapRouter);
-
-        address[] memory path = new address[](2);
-        path[0] = router.WETH();
-        path[1] = token;
-
-        uint256 startEthBalance = user.balance;
-        uint256 startTokenBalance = IERC20(token).balanceOf(user);
-
-        vm.startPrank(user);
-        router.swapExactETHForTokens{value: ethAmount}(
-            0,
-            path,
-            user,
-            block.timestamp
-        );
-
-        uint256 endEthBalance = user.balance;
-        uint256 endTokenBalance = IERC20(token).balanceOf(user);
-
-        assertEq(endEthBalance, startEthBalance - ethAmount);
-        assertGt(endTokenBalance, startTokenBalance);
-
-        vm.stopPrank();
-    }
-
-    function _sellOnUniswap(address user, uint256 tokenAmount, address token) internal {
-        IUniswapV2Router02 router = IUniswapV2Router02(uniswapRouter);
-
-        uint256 startEthBalance = user.balance;
-        uint256 startTokenBalance = IERC20(token).balanceOf(user);
-
-        vm.startPrank(user);
-        IERC20(token).approve(uniswapRouter, tokenAmount);
-
-        address[] memory path = new address[](2);
-
-        path[0] = address(token);
-        path[1] = router.WETH();
-
-        router.swapExactTokensForETH(
-            tokenAmount,
-            0,
-            path,
-            user,
-            block.timestamp
-        );
-
-        uint256 endEthBalance = user.balance;
-        uint256 endTokenBalance = IERC20(token).balanceOf(user);
-
-        assertGt(endEthBalance, startEthBalance);
-        assertEq(endTokenBalance, startTokenBalance - tokenAmount);
-  
-        vm.stopPrank();
-    }
-
-    function _swapExactInputSingle(
-        PoolKey memory key,
-        uint128 amountIn,
-        uint128 minAmountOut
-    ) internal returns (uint256 amountOut) {
-        // Encode the Universal Router command
-        bytes memory commands = abi.encodePacked(uint8(Commands.V4_SWAP));
-        bytes[] memory inputs = new bytes[](1);
-
-        // Encode V4Router actions
-        bytes memory actions = abi.encodePacked(
-            uint8(Actions.SWAP_EXACT_IN_SINGLE),
-            uint8(Actions.SETTLE_ALL),
-            uint8(Actions.TAKE_ALL)
-        );
-
-        // Prepare parameters for each action
-        bytes[] memory params = new bytes[](3);
-        params[0] = abi.encode(
-            IV4Router.ExactInputSingleParams({
-                poolKey: key,
-                zeroForOne: true,
-                amountIn: amountIn,
-                amountOutMinimum: minAmountOut,
-                hookData: bytes("")
-            })
-        );
-        params[1] = abi.encode(key.currency0, amountIn);
-        params[2] = abi.encode(key.currency1, minAmountOut);
-
-        // Combine actions and params into inputs
-        inputs[0] = abi.encode(actions, params);
-
-        // Execute the swap
-        IUniversalRouter(uniswapUniversalRouter).execute{value: amountIn}(commands, inputs, block.timestamp);
-
-        // Verify and return the output amount
-        amountOut = IERC20(Currency.unwrap(key.currency1)).balanceOf(address(this));
-        require(amountOut >= minAmountOut, "Insufficient output amount");
-        return amountOut;
+        return (pool, poolKey);
     }
 }

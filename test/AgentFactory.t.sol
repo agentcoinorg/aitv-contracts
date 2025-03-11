@@ -27,7 +27,7 @@ contract AgentFactoryTest is AgentFactoryTestUtils {
     }
 
     function test_factory() public {
-        _deployDefaultLaunchPool(factory);
+        _deployDefaultLaunchPool(address(0));
     }
 }
 
