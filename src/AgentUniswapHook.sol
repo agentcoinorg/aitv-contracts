@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.28;
 
+import {console} from "forge-std/Test.sol";
 import {BalanceDelta, toBalanceDelta} from '@uniswap/v4-core/src/types/BalanceDelta.sol';
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from '@uniswap/v4-core/src/types/BeforeSwapDelta.sol';
 import {Currency} from '@uniswap/v4-core/src/types/Currency.sol';
@@ -10,18 +11,25 @@ import {PoolId, PoolIdLibrary} from '@uniswap/v4-core/src/types/PoolId.sol';
 import {PoolKey} from '@uniswap/v4-core/src/types/PoolKey.sol';
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {BaseHookUpgradeable} from "./BaseHookUpgradeable.sol";
 import {IFeeSetter} from "./interfaces/IFeeSetter.sol";
 import {UniswapFeeInfo} from "./types/UniswapFeeInfo.sol";
 
+interface IBurnable {
+    function burn(uint256 value) external;
+}
+
 contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgradeable, IFeeSetter {
-    error CannotBeInitializedDirectly();
+    error OnlyLaunchPool();
     error OnlyOwnerOrController();
+    error InvalidCollateral();
 
     IPoolManager public poolManager;
     address public controller;
     mapping(bytes32 => UniswapFeeInfo) public fees;
+    mapping(address => bool) public authorizedLaunchPools;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -50,13 +58,29 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
             revert OnlyOwnerOrController();
         }
 
+        if (_tokenA != _uniswapFeeInfo.collateral && _tokenB != _uniswapFeeInfo.collateral) {
+            revert InvalidCollateral();
+        }
+
         address currency0 = _tokenA < _tokenB ? _tokenA : _tokenB;
         address currency1 = _tokenA < _tokenB ? _tokenB : _tokenA;
 
         bytes32 key = keccak256(abi.encodePacked(currency0, currency1));
+
         fees[key] = _uniswapFeeInfo;
     }
 
+    function setAuthorizedLaunchPool(address launchPool, bool authorized) external virtual {
+        if (msg.sender != owner() && msg.sender != controller) {
+            revert OnlyOwnerOrController();
+        }
+
+        if (authorized) {
+            authorizedLaunchPools[launchPool] = true;
+        } else {
+            delete authorizedLaunchPools[launchPool];
+        }
+    }
 
     /**
      * Defines the Uniswap V4 hooks that are used by our implementation. This will determine
@@ -92,15 +116,19 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
 
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
-    function _beforeInitialize(address, PoolKey calldata, uint160) internal virtual override returns (bytes4) {
+    function _beforeInitialize(address sender, PoolKey calldata, uint160) internal virtual override returns (bytes4) {
+        if (!authorizedLaunchPools[sender]) {
+            revert OnlyLaunchPool();
+        }
+
         return BaseHookUpgradeable.beforeInitialize.selector;
     }
 
     function _beforeSwap(
-        address _sender,
+        address,
         PoolKey calldata _key,
         IPoolManager.SwapParams calldata _params,
-        bytes calldata _hookData
+        bytes calldata
     ) internal virtual override returns (bytes4, BeforeSwapDelta, uint24) {
         uint256 swapAmount = _params.amountSpecified < 0
             ? uint256(-_params.amountSpecified)
@@ -112,13 +140,13 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
         address collateral = pairFees.collateral;
 
         bool isBurn = _params.zeroForOne 
-            ? Currency.unwrap(_key.currency0) == collateral
-            : Currency.unwrap(_key.currency1) == collateral;
+            ? Currency.unwrap(_key.currency0) != collateral
+            : Currency.unwrap(_key.currency1) != collateral;
 
         uint256 totalFee;
         if (isBurn) {
             totalFee = swapAmount * pairFees.burnBasisAmount / 10_000;
-            poolManager.take(feeCurrency, address(0), totalFee);
+            poolManager.take(feeCurrency, address(this), totalFee);
         } else {
             uint256 length = pairFees.recipients.length;
             for (uint256 i = 0; i < length; i++) {
@@ -175,12 +203,30 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
         return (BaseHookUpgradeable.afterRemoveLiquidity.selector, toBalanceDelta(0, 0));
     }
 
-    function _afterSwap(address, PoolKey calldata, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata)
+    function _afterSwap(address, PoolKey calldata _key, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata)
         internal
         virtual
         override
         returns (bytes4, int128)
     {
+        address token0 = Currency.unwrap(_key.currency0);
+        address token1 = Currency.unwrap(_key.currency1);
+
+        uint256 balance0 = token0 != address(0)
+            ? IERC20(token0).balanceOf(address(this))
+            : 0;
+        uint256 balance1 = token1 != address(0)
+            ? IERC20(token1).balanceOf(address(this))
+            : 0;
+
+        if (balance0 > 0) {
+            IBurnable(token0).burn(balance0);
+        }
+
+        if (balance1 > 0) {
+            IBurnable(token1).burn(balance1);
+        }
+
         return (BaseHookUpgradeable.afterSwap.selector, 0);
     }
 

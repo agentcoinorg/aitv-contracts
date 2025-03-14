@@ -110,6 +110,19 @@ contract AgentTokenTest is Test {
         vm.stopPrank();
     }
 
+    function test_canBurnTokens() public {
+        vm.startPrank(owner);
+
+        uint256 ownerBalance = token.balanceOf(owner);
+
+        token.burn(100e18);
+
+        assertEq(token.totalSupply(), 10_000_000 * 1e18 - 100e18);
+        assertEq(token.balanceOf(owner), ownerBalance - 100e18);
+
+        vm.stopPrank();
+    }
+
     function _deployAgentToken(address _owner) internal returns(address) {
         string memory name = "AgentToken";
         string memory symbol = "TOKEN";

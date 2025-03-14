@@ -6,18 +6,17 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {IPositionManager} from '@uniswap/v4-periphery/src/interfaces/IPositionManager.sol';
+import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
  
 import {IAgentToken} from "./interfaces/IAgentToken.sol";
 import {IAgentStaking} from "./interfaces/IAgentStaking.sol";
-import {
-    IAgentLaunchPool,
-    TokenInfo,
-    LaunchPoolInfo,
-    UniswapPoolInfo,
-    AgentDistributionInfo
-} from "./interfaces/IAgentLaunchPool.sol";
+import {IAgentLaunchPool} from "./interfaces/IAgentLaunchPool.sol";
+import {TokenInfo} from "./types/TokenInfo.sol";
+import {LaunchPoolInfo} from "./types/LaunchPoolInfo.sol";
+import {UniswapPoolInfo} from "./types/UniswapPoolInfo.sol";
+import {AgentDistributionInfo} from "./types/AgentDistributionInfo.sol";
 import {UniswapPoolDeployer} from "./UniswapPoolDeployer.sol";
 
 /// @title AgentLaunchPool
@@ -57,6 +56,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     LaunchPoolInfo public launchPoolInfo;
     UniswapPoolInfo public uniswapPoolInfo;
     AgentDistributionInfo public distributionInfo;
+    IPoolManager public uniswapPoolManager;
     IPositionManager public uniswapPositionManager;
 
     bool public hasLaunched;
@@ -77,6 +77,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         LaunchPoolInfo memory _launchPoolInfo,
         UniswapPoolInfo memory _uniswapPoolInfo,
         AgentDistributionInfo memory _distributionInfo,
+        IPoolManager _uniswapPoolManager,
         IPositionManager _uniswapPositionManager
     ) external initializer {
         __Ownable_init(_owner);
@@ -94,6 +95,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         launchPoolInfo = _launchPoolInfo;
         uniswapPoolInfo = _uniswapPoolInfo;
         distributionInfo = _distributionInfo;
+        uniswapPoolManager = _uniswapPoolManager;
         uniswapPositionManager = _uniswapPositionManager;
 
         launchPoolCreatedOn = block.timestamp;
@@ -102,7 +104,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     /// @notice Launch the Agent Token
     /// The contract will deploy the Agent Token contract, create a liquidity pool on Uniswap and deploy the staking contract
     /// Users that have deposited ETH can claim their agent tokens after the launch
-    function launch() external {
+    function launch() external virtual {
         if (hasLaunched) {
             revert AlreadyLaunched();
         }
@@ -237,9 +239,13 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         emit Deposit(beneficiary, msg.sender, depositAmount);
     }
 
-    /// @notice Reclaim deposits if the launch has failed
+    /// @notice Reclaim ETH deposits if the launch has failed
     /// The launch has failed if the time window has passed and the minimum amount has not been reached
-    function reclaimDepositsFor(address payable beneficiary) external {
+    function reclaimETHDepositsFor(address payable beneficiary) external {
+        if (launchPoolInfo.collateral != address(0)) {
+            revert InvalidCollateral();
+        }
+
         if (!_hasTimeWindowPassed()) {
             revert TimeWindowNotPassed();
         }
@@ -255,11 +261,35 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         uint256 amount = deposits[beneficiary];
         deposits[beneficiary] = 0;
 
-        if (address(launchPoolInfo.collateral) == address(0)) {
-            beneficiary.call{value: amount}("");
-        } else {
-            IERC20(launchPoolInfo.collateral).safeTransfer(beneficiary, amount);
+        beneficiary.call{value: amount}("");
+
+        emit ReclaimDeposits(beneficiary, amount);
+    }
+
+    /// @notice Reclaim ERC20 deposits if the launch has failed
+    /// The launch has failed if the time window has passed and the minimum amount has not been reached
+    function reclaimERC20DepositsFor(address beneficiary) external {
+        if (launchPoolInfo.collateral == address(0)) {
+            revert InvalidCollateral();
         }
+
+        if (!_hasTimeWindowPassed()) {
+            revert TimeWindowNotPassed();
+        }
+
+        if (totalDeposited >= launchPoolInfo.minAmountForLaunch) {
+            revert MinAmountReached();
+        }
+
+        if (deposits[beneficiary] == 0) {
+            revert NotDeposited();
+        }
+
+        uint256 amount = deposits[beneficiary];
+        deposits[beneficiary] = 0;
+
+   
+        IERC20(launchPoolInfo.collateral).safeTransfer(beneficiary, amount);
 
         emit ReclaimDeposits(beneficiary, amount);
     }
@@ -383,6 +413,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
 
         _createPoolAndAddLiquidity(
             PoolInfo({
+                poolManager: uniswapPoolManager,
                 positionManager: uniswapPositionManager,
                 collateral: _collateral,
                 agentToken: _agentTokenAddress,

@@ -8,18 +8,16 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {AgentUniswapHook} from "./AgentUniswapHook.sol";
 
 abstract contract AgentUniswapHookDeployer {
-    function _deployAgentUniswapHook(address _owner, address _controller, address _uniswapPoolManager) internal returns(AgentUniswapHook) {
-        AgentUniswapHook implementation = new AgentUniswapHook();
-
+    function _deployAgentUniswapHook(address _owner, address _controller, address _uniswapPoolManager, address _hookImpl) internal returns(AgentUniswapHook) {
         uint160 flags = Hooks.ALL_HOOK_MASK;
 
         bytes memory data = abi.encodeCall(AgentUniswapHook.initialize, (_owner, _controller, _uniswapPoolManager));
 
-        bytes memory constructorArgs = abi.encode(implementation, data);
+        bytes memory constructorArgs = abi.encode(_hookImpl, data);
         (address foundAddress, bytes32 salt) =
             HookMiner.find(address(this), flags, type(ERC1967Proxy).creationCode, constructorArgs);
 
-        ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(implementation), data);
+        ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(_hookImpl, data);
 
         require(address(proxy) == foundAddress, "Deployed address does not match");
 

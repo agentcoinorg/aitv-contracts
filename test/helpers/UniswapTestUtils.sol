@@ -33,7 +33,7 @@ import {AgentUniswapHook} from "../../src/AgentUniswapHook.sol";
 import {AgentToken} from "../../src/AgentToken.sol";
 import {AgentStaking} from "../../src/AgentStaking.sol";
 
-abstract contract UniswapTestUtils {
+abstract contract UniswapTestUtils is Test {
     using StateLibrary for IPoolManager;
     using TransientStateLibrary for IPoolManager;
     
@@ -46,6 +46,8 @@ abstract contract UniswapTestUtils {
         PoolKey memory key,
         uint256 inAmount
     ) internal returns (uint256 amountOut) {
+        vm.startPrank(user);
+
         uint256 startERC20Amount = IERC20(Currency.unwrap(key.currency1)).balanceOf(address(user));
 
         uint128 minAmountOut = 0;
@@ -82,6 +84,8 @@ abstract contract UniswapTestUtils {
 
         uint256 endERC20Amount = IERC20(Currency.unwrap(key.currency1)).balanceOf(address(user));
         
+        vm.stopPrank();
+
         return endERC20Amount - startERC20Amount;
     }
 
@@ -91,6 +95,8 @@ abstract contract UniswapTestUtils {
         uint256 inAmount,
         address inToken
     ) internal returns (uint256 amountOut) {
+        vm.startPrank(user);
+       
         uint256 startOutTokenAmount = Currency.unwrap(key.currency0) == inToken
             ? IERC20(Currency.unwrap(key.currency1)).balanceOf(address(user))
             : IERC20(Currency.unwrap(key.currency0)).balanceOf(address(user));
@@ -139,6 +145,8 @@ abstract contract UniswapTestUtils {
             ? IERC20(Currency.unwrap(key.currency1)).balanceOf(address(user))
             : IERC20(Currency.unwrap(key.currency0)).balanceOf(address(user));
         
+        vm.stopPrank();
+     
         return endOutTokenAmount - startOutTokenAmount;
     }
 
@@ -147,6 +155,8 @@ abstract contract UniswapTestUtils {
         PoolKey memory key,
         uint256 inAmount
     ) internal returns (uint256 amountOut) {
+        vm.startPrank(user);
+
         uint256 startETHAmount = user.balance;
 
         uint128 minAmountOut = 0;
@@ -184,6 +194,8 @@ abstract contract UniswapTestUtils {
 
         uint256 endETHAmount = user.balance;
         
+        vm.stopPrank();
+     
         return endETHAmount - startETHAmount;
     }
 

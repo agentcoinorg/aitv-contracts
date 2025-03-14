@@ -488,7 +488,7 @@ contract AgentStakingTest is Test {
         token.approve(address(staking), amount);
         staking.stake(amount);
 
-        address newImplementation = address(new AgentUnstaking());
+        address newImplementation = address(new AgentUnstakingDisabled());
 
         vm.startPrank(owner);
         staking.upgradeToAndCall(newImplementation, "");
@@ -585,7 +585,7 @@ contract AgentStakingDisabled is AgentStaking {
     }
 }
 
-contract AgentUnstaking is AgentStaking {
+contract AgentUnstakingDisabled is AgentStaking {
     function unstake(uint256 amount) public override {
         revert("Unstaking is disabled");
     }

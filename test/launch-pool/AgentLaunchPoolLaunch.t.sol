@@ -1,0 +1,500 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.0;
+
+import {Test, console} from "forge-std/Test.sol";
+import {PoolKey} from '@uniswap/v4-core/src/types/PoolKey.sol';
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IPoolManager} from '@uniswap/v4-core/src/interfaces/IPoolManager.sol';
+import {BeforeSwapDelta} from '@uniswap/v4-core/src/types/BeforeSwapDelta.sol';
+
+import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
+import {MockedERC20} from "../helpers/MockedERC20.sol";
+import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
+import {AgentToken} from "../../src/AgentToken.sol";
+import {AgentUniswapHook} from "../../src/AgentUniswapHook.sol";
+import {AgentStaking} from "../../src/AgentStaking.sol";
+
+contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
+    
+    function setUp() public {
+        vm.createSelectFork(vm.envString("BASE_RPC_URL"));
+
+        _deployDefaultContracts();
+    }
+
+    function test_launchesWithCorrectConfig() public { 
+        address user = makeAddr("user");
+        vm.deal(user, 10000 ether);
+
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
+
+        vm.prank(user);
+        pool.depositETH{value: 1000 ether}();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        pool.launch();
+
+        assertEq(pool.hasLaunched(), true);
+        assertNotEq(pool.agentToken(), address(0));
+        assertNotEq(pool.agentStaking(), address(0));
+
+        assertEq(IERC20(pool.agentToken()).totalSupply(), totalSupply);
+        assertEq(IERC20(pool.agentToken()).balanceOf(dao), agentDaoAmount);
+        assertEq(IERC20(pool.agentToken()).balanceOf(agentWallet), agentAmount);
+        assertEq(IERC20(pool.agentToken()).balanceOf(address(pool)) / 1e15, launchPoolAmount / 1e15); // Rounding because price calculations (unsiwap) are not exact
+        assertGt(IERC20(pool.agentToken()).balanceOf(address(pool)), launchPoolAmount);
+
+        assertEq(AgentToken(pool.agentToken()).name(), "Agent Token");
+        assertEq(AgentToken(pool.agentToken()).symbol(), "AGENT");
+
+        (uint256 reserveA, uint256 reserveB, uint totalLiquidity) = _getLiquidity(poolKey, address(0), pool.agentToken(), tickSpacing);
+        uint256 expectedUniswapCollateral = collateralUniswapPoolBasisAmount * pool.totalDeposited() / 1e4;
+        assertEq((expectedUniswapCollateral > reserveA ? expectedUniswapCollateral - reserveA : reserveA - expectedUniswapCollateral) / 1e15, 0); // Rounding
+        assertEq((uniswapPoolAmount > reserveB ? uniswapPoolAmount - reserveB : reserveB - uniswapPoolAmount) / 1e15, 0); // Rounding
+        assertGt(totalLiquidity, 0);
+    }
+
+    function test_anyoneCanLaunch() public { 
+        address user = makeAddr("user");
+        vm.deal(user, 10000 ether);
+
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
+
+        vm.prank(user);
+        pool.depositETH{value: 1000 ether}();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        vm.prank(makeAddr("anon"));
+        pool.launch();
+
+        assertEq(pool.hasLaunched(), true);
+        assertNotEq(pool.agentToken(), address(0));
+        assertNotEq(pool.agentStaking(), address(0));
+    }
+
+    function test_canLaunchMultipleAgents() public { 
+        MockedERC20 collateral = new MockedERC20();
+
+        address user1 = makeAddr("user1");
+        address user2 = makeAddr("user2");
+        address user3 = makeAddr("user3");
+        vm.deal(user1, 100 ether);
+        vm.deal(user2, 100 ether);
+        vm.deal(user3, 100 ether);
+
+        collateral.mint(user1, 100e18);
+        collateral.mint(user2, 100e18);
+        collateral.mint(user3, 100e18);
+
+        (AgentLaunchPool pool1,) = _deployDefaultLaunchPool(address(0));
+        (AgentLaunchPool pool2,) = _deployDefaultLaunchPool(address(0));
+        (AgentLaunchPool pool3,) = _deployDefaultLaunchPool(address(collateral));
+
+        vm.startPrank(user1); // Deposit to pool1, pool2 and pool3
+        pool1.depositETH{value: 1 ether}();
+        pool2.depositETH{value: 2 ether}();
+        collateral.approve(address(pool3), 3e18);
+        pool3.depositERC20(3e18);
+
+        vm.startPrank(user2); // Deposit to pool1 and pool3
+        pool1.depositETH{value: 4 ether}();
+        collateral.approve(address(pool3), 5e18);
+        pool3.depositERC20(5e18);
+
+        vm.startPrank(user3); // Deposit to pool1 and pool2
+        pool1.depositETH{value: 6 ether}();
+        pool2.depositETH{value: 7 ether}();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        pool1.launch();
+        pool2.launch();
+        pool3.launch();
+
+        assertEq(pool1.hasLaunched(), true);
+        assertNotEq(pool1.agentToken(), address(0));
+        assertNotEq(pool1.agentStaking(), address(0));
+
+        assertEq(pool2.hasLaunched(), true);
+        assertNotEq(pool2.agentToken(), address(0));
+        assertNotEq(pool2.agentStaking(), address(0));
+
+        assertEq(pool3.hasLaunched(), true);
+        assertNotEq(pool3.agentToken(), address(0));
+        assertNotEq(pool3.agentStaking(), address(0));
+
+        vm.startPrank(user1);
+        assertEq(pool1.claim(user1), true);
+        assertEq(pool2.claim(user1), true);
+        assertEq(pool3.claim(user1), true);
+
+        vm.startPrank(user2);
+        assertEq(pool1.claim(user2), true);
+        assertEq(pool2.claim(user2), false);
+        assertEq(pool3.claim(user2), true);
+
+        vm.startPrank(user3);
+        assertEq(pool1.claim(user3), true);
+        assertEq(pool2.claim(user3), true);
+        assertEq(pool3.claim(user3), false);
+
+        assertGt(IERC20(pool1.agentToken()).balanceOf(user1), 0);
+        assertGt(IERC20(pool2.agentToken()).balanceOf(user1), 0);
+        assertGt(IERC20(pool3.agentToken()).balanceOf(user1), 0);
+
+        assertGt(IERC20(pool1.agentToken()).balanceOf(user2), 0);
+        assertEq(IERC20(pool2.agentToken()).balanceOf(user2), 0);
+        assertGt(IERC20(pool3.agentToken()).balanceOf(user2), 0);
+
+        assertGt(IERC20(pool1.agentToken()).balanceOf(user3), 0);
+        assertGt(IERC20(pool2.agentToken()).balanceOf(user3), 0);
+        assertEq(IERC20(pool3.agentToken()).balanceOf(user3), 0);
+    }
+
+    function test_computedAgentTokenAddressIsCorrect() public { 
+        address user = makeAddr("user");
+        vm.deal(user, 10000 ether);
+
+        (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(0));
+
+        address futureTokenAddress = pool.computeAgentTokenAddress();
+
+        vm.startPrank(user);
+        pool.depositETH{value: 1000 ether}();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        pool.launch();
+
+        assertEq(pool.agentToken(), futureTokenAddress);
+    }
+
+    function test_forbidsReentrantLaunch() public { 
+        address user = makeAddr("user");
+        vm.deal(user, 10000 ether);
+
+        (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(0));
+
+        vm.startPrank(user);
+        pool.depositETH{value: 1000 ether}();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        pool.launch();
+
+        vm.expectRevert(AgentLaunchPool.AlreadyLaunched.selector);
+        pool.launch();
+    }
+
+    function test_forbidsLaunchingMoreThanOnce() public { 
+        address user = makeAddr("user");
+        vm.deal(user, 10000 ether);
+
+        (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(0));
+
+        vm.startPrank(user);
+        pool.depositETH{value: 1000 ether}();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        pool.launch();
+
+        vm.startPrank(makeAddr("anyone"));
+        vm.expectRevert(AgentLaunchPool.AlreadyLaunched.selector);
+        pool.launch();
+    }
+
+    function test_forbidsLaunchBeforeTimeWindow() public { 
+        address user = makeAddr("user");
+        vm.deal(user, 10000 ether);
+
+        (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(0));
+
+        vm.startPrank(user);
+        pool.depositETH{value: 1000 ether}();
+
+        vm.warp(block.timestamp + timeWindow / 2);
+
+        vm.expectRevert(AgentLaunchPool.TimeWindowNotPassed.selector);
+        pool.launch();
+    }
+
+    function test_forbidsLaunchIfMinAmountNotReached() public { 
+        address user = makeAddr("user");
+        vm.deal(user, 10000 ether);
+
+        (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(0));
+
+        vm.startPrank(user);
+        pool.depositETH{value: 0.5 ether}();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        vm.expectRevert(AgentLaunchPool.MinAmountNotReached.selector);
+        pool.launch();
+    }
+
+    function test_canLaunchDifferentAgentLaunchPoolImpls() public { 
+        address depositor = makeAddr("depositor");
+        vm.deal(depositor, 2 ether);
+
+        launchPoolImpl = address(new AgentLaunchPoolLaunchDisabled());
+        (AgentLaunchPool pool1, PoolKey memory poolKey1) = _deployDefaultLaunchPool(address(0));
+
+        launchPoolImpl = address(new AgentLaunchPoolCollateralMigrator());
+        (AgentLaunchPool pool2, PoolKey memory poolKey2) = _deployDefaultLaunchPool(address(0));
+
+        vm.startPrank(depositor);
+        pool1.depositETH{value: 1 ether}();
+        pool2.depositETH{value: 1 ether}();
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        vm.expectRevert("Launch disabled");
+        pool1.launch();
+        vm.expectRevert(AgentLaunchPool.NotLaunched.selector);
+        pool1.claim(depositor);
+        
+        // We don't launch pool2 because we're going to transfer the collateral
+
+        AgentLaunchPoolCollateralMigrator migrator = AgentLaunchPoolCollateralMigrator(payable(address(pool2)));
+
+        address recipient = makeAddr("recipient");
+
+        assertEq(recipient.balance, 0);
+        assertEq(address(pool2).balance, 1 ether);
+
+        migrator.migrateCollateral(recipient);
+
+        assertEq(recipient.balance, 1 ether);
+        assertEq(address(pool2).balance, 0);
+    }
+
+    function test_canLaunchDifferentAgentTokenImpls() public { 
+        address depositor = makeAddr("depositor");
+        vm.deal(depositor, 2 ether);
+
+        agentTokenImpl = address(new AgentTokenMock());
+        (AgentLaunchPool pool1, PoolKey memory poolKey1) = _deployDefaultLaunchPool(address(0));
+
+        agentTokenImpl = address(new AgentTokenMint());
+        (AgentLaunchPool pool2, PoolKey memory poolKey2) = _deployDefaultLaunchPool(address(0));
+
+        vm.startPrank(depositor);
+        pool1.depositETH{value: 1 ether}();
+        pool2.depositETH{value: 1 ether}();
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        pool1.launch();
+        pool2.launch();
+
+        pool1.claim(depositor);
+        pool2.claim(depositor);
+
+        uint256 depositorBalance1 = IERC20(pool1.agentToken()).balanceOf(depositor);
+        uint256 depositorBalance2 = IERC20(pool2.agentToken()).balanceOf(depositor);
+
+        assertGt(depositorBalance1, 0);
+        assertGt(depositorBalance2, 0);
+
+        AgentTokenMock mock = AgentTokenMock(pool1.agentToken());
+        assertEq(mock.test(), true);
+
+        AgentTokenMint mint = AgentTokenMint(pool2.agentToken());
+        mint.mint(depositor, 1e18);
+        assertEq(IERC20(pool2.agentToken()).balanceOf(depositor), depositorBalance2 + 1e18);
+    }
+
+    function test_canLaunchDifferentStakingImpls() public { 
+        address depositor = makeAddr("depositor");
+        vm.deal(depositor, 2 ether);
+
+        agentStakingImpl = address(new AgentStakingDisabled());
+        (AgentLaunchPool pool1, PoolKey memory poolKey1) = _deployDefaultLaunchPool(address(0));
+
+        agentStakingImpl = address(new AgentUnstakingDisabled());
+        (AgentLaunchPool pool2, PoolKey memory poolKey2) = _deployDefaultLaunchPool(address(0));
+
+        vm.startPrank(depositor);
+        pool1.depositETH{value: 1 ether}();
+        pool2.depositETH{value: 1 ether}();
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        pool1.launch();
+        pool2.launch();
+
+        pool1.claim(depositor);
+        pool2.claim(depositor);
+
+        address user = makeAddr("user");
+        vm.deal(user, 2 ether);
+
+        // Pool 1
+        {
+            address token1 = pool1.agentToken();
+        
+            _swapETHForERC20(user, poolKey1, 1 ether);
+
+            AgentStaking staking1 = AgentStaking(pool1.agentStaking());
+
+            uint256 startingUserBalance1 = IERC20(pool1.agentToken()).balanceOf(user);
+            uint256 userAmount1 = startingUserBalance1 / 3;
+
+            vm.startPrank(user);
+            IERC20(token1).approve(address(staking1), userAmount1);
+            vm.expectRevert("Staking is disabled");
+            staking1.stake(userAmount1);
+            vm.stopPrank();
+
+            uint256 startingDepositorBalance1 = IERC20(pool1.agentToken()).balanceOf(depositor);
+            uint256 depositorAmount1 = startingDepositorBalance1 / 3;
+
+            vm.startPrank(depositor);
+            IERC20(token1).approve(address(staking1), depositorAmount1);
+            vm.expectRevert("Staking is disabled");
+            staking1.stake(depositorAmount1);
+            vm.stopPrank();
+        
+            assertEq(IERC20(token1).balanceOf(user), startingUserBalance1);
+            assertEq(staking1.getStakedAmount(user), 0);
+
+            assertEq(IERC20(token1).balanceOf(depositor), startingDepositorBalance1);
+            assertEq(staking1.getStakedAmount(depositor), 0);            
+        }
+
+        // Pool 2
+        address token2 = pool2.agentToken();
+
+        _swapETHForERC20(user, poolKey2, 1 ether);
+
+        AgentStaking staking2 = AgentStaking(pool2.agentStaking());
+
+        uint256 startingUserBalance2 = IERC20(pool2.agentToken()).balanceOf(user);
+        uint256 userAmount2 = startingUserBalance2 / 3;
+
+        vm.startPrank(user);
+        IERC20(token2).approve(address(staking2), userAmount2);
+        staking2.stake(userAmount2);
+        vm.stopPrank();
+
+        uint256 startingDepositorBalance2 = IERC20(pool2.agentToken()).balanceOf(depositor);
+        uint256 depositorAmount2 = startingDepositorBalance2 / 3;
+
+        vm.startPrank(depositor);
+        IERC20(token2).approve(address(staking2), depositorAmount2);
+        staking2.stake(depositorAmount2);
+        vm.stopPrank();
+    
+        assertEq(IERC20(token2).balanceOf(user), startingUserBalance2 - userAmount2);
+        assertEq(staking2.getStakedAmount(user), userAmount2);
+
+        assertEq(IERC20(token2).balanceOf(depositor), startingDepositorBalance2 - depositorAmount2);
+        assertEq(staking2.getStakedAmount(depositor), depositorAmount2);
+
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(depositor);
+        vm.expectRevert("Unstaking is disabled");
+        staking2.unstake(depositorAmount2);
+
+        vm.prank(user);
+        vm.expectRevert("Unstaking is disabled");
+        staking2.unstake(userAmount2);
+    }
+
+    function test_canLaunchDifferentUniswapHookImpls() public {
+        address hook1 = address(_deployAgentUniswapHook(owner, address(factory), address(new AgentUniswapHookDisableSwap())));
+        address hook2 = address(_deployAgentUniswapHook(owner, address(factory), address(new AgentUniswapHookUpgrade())));
+
+        address user = makeAddr("user");
+        vm.deal(user, 2 ether);
+
+        (AgentLaunchPool pool1, PoolKey memory poolKey1) = _deployDefaultLaunchPoolWithHook(address(0), hook1);
+        (AgentLaunchPool pool2, PoolKey memory poolKey2) = _deployDefaultLaunchPoolWithHook(address(0), hook2);
+
+        vm.startPrank(user);
+        pool1.depositETH{value: 1 ether}();
+        pool2.depositETH{value: 1 ether}();
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + timeWindow);
+
+        pool1.launch();
+        pool2.launch();
+
+        address buyer = makeAddr("buyer");
+        vm.deal(buyer, 2 ether);
+
+        vm.expectRevert(); // Uniswap wraps the error so no error message
+        ExternalSwap.swap(this, buyer, poolKey1, 1 ether); // This is a hack to be able to use expectRevert
+
+        ExternalSwap.swap(this, buyer, poolKey2, 1 ether);
+    }
+
+    function externalSwap(address buyer, PoolKey memory poolKey, uint256 amount) external {
+        _swapETHForERC20(buyer, poolKey, amount);
+    }
+}
+
+contract AgentUniswapHookDisableSwap is AgentUniswapHook {
+    function _beforeSwap(
+        address,
+        PoolKey calldata _key,
+        IPoolManager.SwapParams calldata _params,
+        bytes calldata
+    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+        revert ("Swap disabled1");
+    }
+}
+
+contract AgentUniswapHookUpgrade is AgentUniswapHook {
+}
+
+library ExternalSwap {
+  function swap(AgentLaunchPoolLaunchTest test, address buyer, PoolKey memory poolKey, uint256 amount) internal returns (uint256 a) {
+    test.externalSwap(buyer, poolKey, amount);
+  }
+}
+
+contract AgentStakingDisabled is AgentStaking {
+    function stake(uint256 amount) public override {
+        revert("Staking is disabled");
+    }
+}
+
+contract AgentUnstakingDisabled is AgentStaking {
+    function unstake(uint256 amount) public override {
+        revert("Unstaking is disabled");
+    }
+}
+
+contract AgentTokenMock is AgentToken {
+    function test() public pure returns(bool) {
+        return true;
+    }
+}
+
+contract AgentTokenMint is AgentToken {
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
+
+contract AgentLaunchPoolLaunchDisabled is AgentLaunchPool {
+    function launch() external view override {
+        revert ("Launch disabled");
+    }
+}
+
+contract AgentLaunchPoolCollateralMigrator is AgentLaunchPool {
+    function migrateCollateral(address recipient) external {
+        payable(recipient).call{value: address(this).balance}("");
+    }
+}
