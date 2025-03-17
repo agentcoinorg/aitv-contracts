@@ -15,10 +15,7 @@ import {BaseHookUpgradeable} from "./BaseHookUpgradeable.sol";
 import {IFeeSetter} from "./interfaces/IFeeSetter.sol";
 import {IAuthorizeLaunchPool} from "./interfaces/IAuthorizeLaunchPool.sol";
 import {UniswapFeeInfo} from "./types/UniswapFeeInfo.sol";
-
-interface IBurnable {
-    function burn(uint256 value) external;
-}
+import {IBurnable} from "./interfaces/IBurnable.sol";
 
 /// @title Agent Uniswap Hook
 /// @notice A hook contract for Uniswap V4 that takes fees and burns agent tokens on swaps
@@ -59,8 +56,8 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
     }
 
     /// @notice Sets the controller of the contract
-    /// @param _controller The new controller of the contract
     /// @dev Controller should be the AgentFactory contract
+    /// @param _controller The new controller of the contract
     function setController(address _controller) external virtual onlyOwner {
         controller = _controller;
 
@@ -91,9 +88,9 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
     }
 
     /// @notice Sets whether a launch pool is authorized to use this hook
+    /// @dev This protects the hook from being used by other Uniswap pools
     /// @param launchPool The address of the launch pool
     /// @param authorized Whether the launch pool is authorized
-    /// @dev This protects the hook from being used by other Uniswap pools
     function setAuthorizedLaunchPool(address launchPool, bool authorized) external virtual {
         if (msg.sender != owner() && msg.sender != controller) {
             revert OnlyOwnerOrController();
@@ -110,9 +107,9 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
 
 
     /// @notice Returns the permissions for the hook
-    /// @return The permissions for the hook
     /// @dev This is used to validate the hook address during deployment
     /// We use all permissions so that we can upgrade the hook in the future
+    /// @return The permissions for the hook
     function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: true,
@@ -160,10 +157,12 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
         return BaseHookUpgradeable.beforeInitialize.selector;
     }
 
-    /// @notice Before swap hook
+    /// @notice Before swap hook, sends fees to recipients and takes agent tokens to be burned in the after swap hook
     /// @param _key The pool key
     /// @param _params The swap parameters
-    /// @dev Sends fees to recipients and takes agent tokens to be burned in the after swap hook
+    /// @dev Fee is taken from collateral and agent tokens are taken to be burned after the swap
+    /// If collateral amount is known, then collateral fee is taken and no agent tokens are burned
+    /// If the agent token amount is known, then the agent token fee is burned and collateral is not taken
     function _beforeSwap(
         address,
         PoolKey calldata _key,
@@ -259,7 +258,7 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
 
     /// @notice Before swap hook
     /// @param _key The pool key
-    /// @dev Burns the agent token after the swap
+    /// @dev If the hook has agent tokens, burn them
     function _afterSwap(address, PoolKey calldata _key, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata)
         internal
         virtual

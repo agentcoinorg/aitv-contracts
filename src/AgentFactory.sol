@@ -20,6 +20,7 @@ import {DistributionAndPriceChecker} from "./DistributionAndPriceChecker.sol";
 
 /// @title AgentFactory
 /// @notice The following is a contract to deploy agent launch pools
+/// @dev It is responsible for setting the fees for the uniswap pool and authorizing the launch pool with the uniswap hook
 contract AgentFactory is DistributionAndPriceChecker, OwnableUpgradeable, UUPSUpgradeable {
     error LengthMismatch();
 
@@ -37,6 +38,10 @@ contract AgentFactory is DistributionAndPriceChecker, OwnableUpgradeable, UUPSUp
         _disableInitializers();
     }
 
+    /// @notice Initializes the contract
+    /// @param _owner The owner of the contract and the one who can upgrade it
+    /// @param _uniswapPoolManager The address of the uniswap pool manager
+    /// @param _positionManager The address of the position manager
     function initialize(
         address _owner,
         address _uniswapPoolManager,
@@ -49,6 +54,10 @@ contract AgentFactory is DistributionAndPriceChecker, OwnableUpgradeable, UUPSUp
         positionManager = IPositionManager(_positionManager);
     }
 
+    /// @notice Adds a proposal to the factory
+    /// @param _proposal The proposal to add
+    /// @return The id of the proposal
+    /// @dev Anyone can add a proposal, but only the owner can deploy it
     function addProposal(LaunchPoolProposal calldata _proposal) external virtual returns(uint256) {
         if (_proposal.launchPoolInfo.collateralRecipients.length != _proposal.launchPoolInfo.collateralBasisAmounts.length) {
             revert LengthMismatch();
@@ -73,6 +82,9 @@ contract AgentFactory is DistributionAndPriceChecker, OwnableUpgradeable, UUPSUp
         return proposalId;
     }
 
+    /// @notice Deploys a proposal
+    /// @param proposalId The id of the proposal to deploy
+    /// @return The address of the deployed launch pool
     function deployProposal(uint256 proposalId) external virtual onlyOwner returns(address payable) {
         LaunchPoolProposal memory proposal = proposals[proposalId];
 
@@ -90,6 +102,16 @@ contract AgentFactory is DistributionAndPriceChecker, OwnableUpgradeable, UUPSUp
         return pool;
     }
 
+    /// @notice Deploys a launch pool
+    /// @param _launchPoolImplementation The address of the launch pool implementation
+    /// @param _tokenInfo The token information
+    /// @param _launchPoolInfo The launch pool information
+    /// @param _uniswapPoolInfo The uniswap pool information
+    /// @param _distributionInfo The distribution information
+    /// @param _uniswapFeeInfo The uniswap fee information
+    /// @return The address of the deployed launch pool
+    /// @dev Only the owner can deploy a launch pool, and the distribution must be correct
+    /// It sets the fees and the launch pool as authorized on the uniswap hook
     function deploy(
         address _launchPoolImplementation,
         TokenInfo memory _tokenInfo,
@@ -138,5 +160,6 @@ contract AgentFactory is DistributionAndPriceChecker, OwnableUpgradeable, UUPSUp
         return payable(pool);
     }
 
+    /// @notice Access control to upgrade the contract. Only the owner can upgrade
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 }

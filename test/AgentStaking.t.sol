@@ -574,19 +574,19 @@ contract AgentStakingV2Mock is AgentStaking {
 }
 
 contract AgentStakingUnlock is AgentStaking {
-    function unlock_time() public view override returns (uint256) {
+    function unlock_time() public pure override returns (uint256) {
         return 2 days;
     }
 }
 
 contract AgentStakingDisabled is AgentStaking {
-    function stake(uint256 amount) public override {
+    function stake(uint256) public pure override {
         revert("Staking is disabled");
     }
 }
 
 contract AgentUnstakingDisabled is AgentStaking {
-    function unstake(uint256 amount) public override {
+    function unstake(uint256) public pure override {
         revert("Unstaking is disabled");
     }
 }
