@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.28;
+pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {HelperConfig} from "../script/HelperConfig.s.sol";
 import {AgentToken} from "../src/AgentToken.sol";
 
 contract AgentTokenTest is Test {
@@ -107,6 +106,19 @@ contract AgentTokenTest is Test {
         token.transfer(makeAddr("new-recipient"), 100);
 
         assertEq(token.balanceOf(makeAddr("new-recipient")), 100);
+
+        vm.stopPrank();
+    }
+
+    function test_canBurnTokens() public {
+        vm.startPrank(owner);
+
+        uint256 ownerBalance = token.balanceOf(owner);
+
+        token.burn(100e18);
+
+        assertEq(token.totalSupply(), 10_000_000 * 1e18 - 100e18);
+        assertEq(token.balanceOf(owner), ownerBalance - 100e18);
 
         vm.stopPrank();
     }

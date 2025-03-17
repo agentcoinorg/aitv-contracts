@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.28;
+pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -488,7 +488,7 @@ contract AgentStakingTest is Test {
         token.approve(address(staking), amount);
         staking.stake(amount);
 
-        address newImplementation = address(new AgentUnstaking());
+        address newImplementation = address(new AgentUnstakingDisabled());
 
         vm.startPrank(owner);
         staking.upgradeToAndCall(newImplementation, "");
@@ -574,19 +574,19 @@ contract AgentStakingV2Mock is AgentStaking {
 }
 
 contract AgentStakingUnlock is AgentStaking {
-    function unlock_time() public view override returns (uint256) {
+    function unlock_time() public pure override returns (uint256) {
         return 2 days;
     }
 }
 
 contract AgentStakingDisabled is AgentStaking {
-    function stake(uint256 amount) public override {
+    function stake(uint256) public pure override {
         revert("Staking is disabled");
     }
 }
 
-contract AgentUnstaking is AgentStaking {
-    function unstake(uint256 amount) public override {
+contract AgentUnstakingDisabled is AgentStaking {
+    function unstake(uint256) public pure override {
         revert("Unstaking is disabled");
     }
 }

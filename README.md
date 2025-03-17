@@ -1,5 +1,8 @@
 ## Agent Contracts
 
+### Documentation
+Agentcoin.tv documentation can be found [here](https://docs.agentcoin.tv/)
+
 ### Build
 
 ```shell
@@ -14,46 +17,49 @@ $ forge test
 
 ### Deploy
 
-To deploy AgentKey (Version 1 of the agent token contract)
+E.g. to deploy AgentFactory on Base
 ```shell
-$ ./deploy/base.sh pk 
+$ ./deploy.sh pk base DeployAgentFactory
 ```
-
-To deploy the migration contract for Gecko token
-```shell
-$ ./deploy/gecko-migration-base.sh pk
-```
-
-To deploy AgentStaking
-```shell
-$ ./deploy/agent-staking-base.sh pk
-```
+deploy.sh is a script that takes the auth option (pk or account), network, and script name as arguments
 
 ### Contracts
 #### AgentToken
-This contract is the second version of the agent token contract (previous being AgentKey). It is an upgradeable ERC20 token with snapshot functionality.
+This contract is the token contract for Agents. It is an upgradeable ERC20 token with snapshot and burn functionality.
 
 #### AgentStaking
 This contract is used to stake AgentToken tokens. A user can stake or unstake any amount of tokens at any time.
 Unstaking tokens will lock the tokens for 1 day before they can be claimed. The user can claim the tokens after the lock period is over.
 
-#### GeckoV2Migrator
-This contract is used to migrate the old Gecko token to the new Gecko token. 
-The old token contract is AgentKey and the new token contract is AgentToken.
-It deploys the new Gecko token contract, an airdrop contract for holders of the old token to claim the new token, creates and funds a liquidity pool on Uniswap, and distributes tokens to the AgentCoin DAO, Gecko's cold wallet, and the pool.
-There will be 10 million new Gecko tokens minted and distributed as follows:
-- 700,000 to the AgentCoin DAO
-- 300,000 to the Gecko cold wallet
-- 2,500,000 to the airdrop contract for holders of the old Gecko token
-- 6,500,000 to the Uniswap pool
+#### AgentFactory
+This contract is used to deploy Agent Launch Pool contracts. It is a factory contract that deploys a new Agent Launch Pool contract for each new agent.
+Anyone can propose a configuration for the new launch pool. 
+The configuration includes information about the token, launch pool, agent token distribution, collateral distribution, and uniswap pool creation.
+Only the owner can deploy a proposal or a configuration directly.
 
-##### Migration process
-1. Deploy the GeckoV2Migrator contract
-2. Call the stopAndTransferReserve function on the old Gecko token contract to stop the token and transfer the reserves to the new contract
-3. Call the migrate function on the GeckoV2Migrator contract to start the migration process
-2. and 3. will be done within the same transaction by the DAO's Gnosis Safe
+#### AgentLaunchPool
+The following is a contract to launch Agent Tokens.
+The contract will:
+- Allow users to deposit ETH or ERC20 collateral (depending on configuration) to receive Agent Tokens after the launch 
+On launch it will:
+- Deploy the Agent Token contract
+- Deploy the Agent Token Staking contract
+- Allow users to claim their agent tokens
+- Create and fund a liquidity pool on Uniswap V4
+- Distribute agent tokens to the specified recipients (this happens as part of Agent Token deployment) and the depositors of the pool
+- Distribute collateral to the specified recipients
+If the launch fails, users can reclaim their deposits
+The launch fails if the minimum amount is not reached by the end of the launch window.  
+More information about the launch pool can be found [here](https://docs.agentcoin.tv/curating-fair-launches#launch-pools)
 
-#### AirdopClaim
-This contract is used to claim the new Gecko token for holders of the old Gecko token. The contract is funded by the GeckoV2Migrator contract and the user can claim the new token by calling the claim function.
-Anyone can call the claim function for any address, but that address can only claim once.
-
+### AgentUniswapHook
+The hook contract for the Uniswap V4 pool.
+It takes fees from collateral and burns agent tokens on swap.
+If collateral amount is known, then collateral fee is taken and no agent tokens are burned.
+If the agent token amount is known, then the agent token fee is burned and collateral is not taken.
+The following is the list of cases:
+- Buying agent tokens with specified input collateral amount - collateral fee is taken
+- Buying agent tokens with specified output agent token amount - agent token fee is burned
+- Selling agent tokens with specified input agent token amount - agent token fee is burned
+- Selling agent tokens with specified output collateral amount - collateral fee is taken  
+More information about the fee structure can be found [here](https://docs.agentcoin.tv/interactive-viewership#fee-distribution)
