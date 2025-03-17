@@ -20,6 +20,10 @@ import {LaunchPoolProposal} from "../src/types/LaunchPoolProposal.sol";
 import {AgentFactoryTestUtils} from "./helpers/AgentFactoryTestUtils.sol";
 import {DistributionAndPriceChecker} from "../src/DistributionAndPriceChecker.sol";
 
+interface IRevokeRole {
+    function revokeRole(bytes32 role, address account) external;
+}
+
 contract AgentFactoryTest is AgentFactoryTestUtils {
     
     function setUp() public {

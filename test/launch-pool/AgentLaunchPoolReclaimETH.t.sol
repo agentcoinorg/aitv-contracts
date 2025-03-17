@@ -53,7 +53,7 @@ contract AgentLaunchPoolReclaimETHTest is AgentFactoryTestUtils {
         assertEq(user.balance, 100 ether);
     }
 
-    function test_canreclaimETHDepositsForBeneficiary() public { 
+    function test_canReclaimETHDepositsForBeneficiary() public { 
         address user = makeAddr("user");
         vm.deal(user, 100 ether);
 

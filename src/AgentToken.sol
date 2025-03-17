@@ -43,5 +43,5 @@ contract AgentToken is ERC20VotesUpgradeable, OwnableUpgradeable, ERC20BurnableU
         super._update(from, to, value);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {} 
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {} 
 }

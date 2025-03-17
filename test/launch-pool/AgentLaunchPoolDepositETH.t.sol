@@ -37,7 +37,6 @@ contract AgentLaunchPoolDepositETHTest is AgentFactoryTestUtils {
         vm.deal(user2, 2 ether);
         vm.deal(user3, 3 ether);
 
-
         (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(0));
 
         vm.prank(user1);

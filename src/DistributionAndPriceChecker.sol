@@ -51,8 +51,10 @@ abstract contract DistributionAndPriceChecker {
 
     /// @notice Checks that the agent token price is higher after launch
     /// @param _launchPoolInfo Launch pool information
+    /// @dev The full formula is 'total collateral' : 'launch pool agent tokens' must be lower than 'uniswap pool collateral' : 'uniswap pool agent tokens'
+    /// This is to ensure that the depositors of the launch pool bought the agent tokens at a lower price than the initial price on uniswap
     function _requireAgentPriceHigherAfterLaunch(LaunchPoolInfo memory _launchPoolInfo, AgentDistributionInfo memory _distributionInfo) internal virtual pure {
-        if (_distributionInfo.uniswapPoolBasisAmount > _launchPoolInfo.collateralUniswapPoolBasisAmount * _distributionInfo.launchPoolBasisAmount / 1e4) {
+        if (_distributionInfo.uniswapPoolBasisAmount * 1e4 > _launchPoolInfo.collateralUniswapPoolBasisAmount * _distributionInfo.launchPoolBasisAmount) {
             revert PriceLowerAfterLaunch();
         }
     }

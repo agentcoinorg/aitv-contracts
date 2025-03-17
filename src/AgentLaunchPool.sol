@@ -342,7 +342,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, DistributionAndPriceChecker, Ow
             return false;
         }
 
-        uint256 amountToTransfer = (distributionInfo.launchPoolBasisAmount * tokenInfo.totalSupply / 10000) * deposit / totalDeposited;
+        uint256 amountToTransfer = (distributionInfo.launchPoolBasisAmount * tokenInfo.totalSupply / 1e4) * deposit / totalDeposited;
 
         deposits[_recipient] = 0;
         IERC20(agentToken).safeTransfer(_recipient, amountToTransfer);
@@ -473,9 +473,9 @@ contract AgentLaunchPool is UniswapPoolDeployer, DistributionAndPriceChecker, Ow
         }
 
         uint256[] memory airdropAmounts = new uint256[](length + 1);
-        airdropAmounts[0] = (distributionInfo.launchPoolBasisAmount + distributionInfo.uniswapPoolBasisAmount) * tokenInfo.totalSupply / 10000;
+        airdropAmounts[0] = (distributionInfo.launchPoolBasisAmount + distributionInfo.uniswapPoolBasisAmount) * tokenInfo.totalSupply / 1e4;
         for (uint256 i = 0; i < length; i++) {
-            airdropAmounts[i + 1] = distributionInfo.basisAmounts[i] * tokenInfo.totalSupply / 10000;
+            airdropAmounts[i + 1] = distributionInfo.basisAmounts[i] * tokenInfo.totalSupply / 1e4;
         }
 
         bytes memory tokenCtorArgs = abi.encodeCall(IAgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, _owner, airdropRecipients, airdropAmounts));
