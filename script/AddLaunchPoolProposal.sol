@@ -2,6 +2,13 @@
 pragma solidity ^0.8.0;
 
 import {Script, console} from "forge-std/Script.sol";
+
+import {TokenInfo} from "../src/types/TokenInfo.sol";
+import {LaunchPoolInfo} from "../src/types/LaunchPoolInfo.sol";
+import {UniswapPoolInfo} from "../src/types/UniswapPoolInfo.sol";
+import {AgentDistributionInfo} from "../src/types/AgentDistributionInfo.sol";
+import {LaunchPoolProposal} from "../src/types/LaunchPoolProposal.sol";
+import {UniswapFeeInfo} from "../src/types/UniswapFeeInfo.sol";
 import {AgentFactory} from "../src/AgentFactory.sol";
 import {LaunchPoolProposal} from "../src/types/LaunchPoolProposal.sol";
 
@@ -15,16 +22,19 @@ contract DeployAgentFactoryScript is Script {
         address agentWallet = vm.envAddress("AGENT_WALLET");
         
         AgentFactory factory = AgentFactory(vm.envAddress("AGENT_FACTORY"));
-        address hook = AgentFactory(vm.envAddress("AGENT_UNISWAP_HOOK"));
+        address hook = vm.envAddress("AGENT_UNISWAP_HOOK");
         address agentTokenImpl = vm.envAddress("AGENT_TOKEN_IMPL");
         address agentStakingImpl = vm.envAddress("AGENT_STAKING_IMPL");
+        address launchPoolImpl = vm.envAddress("AGENT_LAUNCH_POOL_IMPL");
+        string memory agentTokenName = "Agent Token";
+        string memory agentTokenSymbol = "AGENT";
 
         address collateral = address(0);
 
         TokenInfo memory tokenInfo = TokenInfo({
             owner: dao,
-            name: "Agent Token",
-            symbol: "AGENT",
+            name: agentTokenName,
+            symbol: agentTokenSymbol,
             totalSupply: 10_000_000,
             tokenImplementation: agentTokenImpl,
             stakingImplementation: agentStakingImpl
