@@ -30,7 +30,7 @@ abstract contract UniswapTestUtils is Test {
     address public uniswapPoolManager;
     address public uniswapPositionManager;
     address public uniswapUniversalRouter;
-    address permit2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+    address permit2 = vm.envAddress("PERMIT2");
 
     function _swapETHForERC20ExactIn(
         address user,
