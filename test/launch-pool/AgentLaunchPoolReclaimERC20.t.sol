@@ -2,14 +2,10 @@
 pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
-import {PoolKey} from '@uniswap/v4-core/src/types/PoolKey.sol';
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
 import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
 import {MockedERC20} from "../helpers/MockedERC20.sol";
 import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
-import {AgentToken} from "../../src/AgentToken.sol";
 
 contract AgentLaunchPoolReclaimERC20Test is AgentFactoryTestUtils {
     MockedERC20 collateral;
@@ -145,16 +141,14 @@ contract AgentLaunchPoolReclaimERC20Test is AgentFactoryTestUtils {
 
         vm.warp(block.timestamp + timeWindow);
 
-        pool.reclaimERC20DepositsFor(user);
-
-        vm.expectRevert(AgentLaunchPool.NotDeposited.selector);
-        pool.reclaimERC20DepositsFor(user);
+        assertEq(pool.reclaimERC20DepositsFor(user), true);
+        assertEq(pool.reclaimERC20DepositsFor(user), false);
 
         assertEq(pool.deposits(user), 0);
         assertEq(collateral.balanceOf(user), 100e18);
     }
 
-    function test_forbidsReclaimingIfBeneficiaryAlreadyClaimed() public { 
+    function test_doesNotReclaimIfBeneficiaryAlreadyClaimed() public { 
         address user = makeAddr("user");
         collateral.mint(user, 100e18);
 
@@ -171,8 +165,7 @@ contract AgentLaunchPoolReclaimERC20Test is AgentFactoryTestUtils {
         pool.reclaimERC20DepositsFor(user);
 
         vm.prank(makeAddr("anon2"));
-        vm.expectRevert(AgentLaunchPool.NotDeposited.selector);
-        pool.reclaimERC20DepositsFor(user);
+        assertEq(pool.reclaimERC20DepositsFor(user), false);
 
         assertEq(pool.deposits(user), 0);
         assertEq(collateral.balanceOf(user), 100e18);
@@ -216,7 +209,7 @@ contract AgentLaunchPoolReclaimERC20Test is AgentFactoryTestUtils {
         assertEq(collateral.balanceOf(user), 100e18 - 1e18);
     }
 
-    function test_forbidsReclaimingIfBeneficiaryNeverDeposited() public { 
+    function test_doesNotReclaimIfBeneficiaryNeverDeposited() public { 
         address user = makeAddr("user");
         collateral.mint(user, 100e18);
 
@@ -230,12 +223,10 @@ contract AgentLaunchPoolReclaimERC20Test is AgentFactoryTestUtils {
         vm.warp(block.timestamp + timeWindow);
 
         vm.prank(user);
-        vm.expectRevert(AgentLaunchPool.NotDeposited.selector);
-        pool.reclaimERC20DepositsFor(makeAddr("non-depositor"));
+        assertEq(pool.reclaimERC20DepositsFor(makeAddr("non-depositor")), false);
 
         vm.prank(makeAddr("non-depositor"));
-        vm.expectRevert(AgentLaunchPool.NotDeposited.selector);
-        pool.reclaimERC20DepositsFor(makeAddr("non-depositor"));
+        assertEq(pool.reclaimERC20DepositsFor(makeAddr("non-depositor")), false);
 
         assertEq(pool.deposits(user), 0.5 * 1e18);
         assertEq(pool.deposits(makeAddr("non-depositor")), 0);

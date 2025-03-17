@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {console} from "forge-std/Test.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {IPositionManager} from '@uniswap/v4-periphery/src/interfaces/IPositionManager.sol';
-import {IPoolManager} from '@uniswap/v4-core/src/interfaces/IPoolManager.sol';
+import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IFeeSetter} from "./interfaces/IFeeSetter.sol";
 import {IAuthorizeLaunchPool} from "./interfaces/IAuthorizeLaunchPool.sol";
@@ -15,16 +16,16 @@ import {UniswapPoolInfo} from "./types/UniswapPoolInfo.sol";
 import {AgentDistributionInfo} from "./types/AgentDistributionInfo.sol";
 import {LaunchPoolProposal} from "./types/LaunchPoolProposal.sol";
 import {UniswapFeeInfo} from "./types/UniswapFeeInfo.sol";
+import {DistributionAndPriceChecker} from "./DistributionAndPriceChecker.sol";
 
 /// @title AgentFactory
 /// @notice The following is a contract to deploy agent launch pools
-contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
-    error OnlyLaunchPool();
+contract AgentFactory is DistributionAndPriceChecker, OwnableUpgradeable, UUPSUpgradeable {
     error LengthMismatch();
-    error PriceLowerAfterLaunch();
 
-    event Deployed(address launchPool);
-    event DeployedProposal(uint256 proposalId, address launchPool);
+    event DeployLaunchPool(address launchPool);
+    event AddProposal(uint256 proposalId, address proposer);
+    event DeployProposal(uint256 proposalId, address launchPool);
 
     IPoolManager public poolManager;
     IPositionManager public positionManager;
@@ -61,21 +62,21 @@ contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
             revert LengthMismatch();
         }
 
-        _requireAgentPriceHigherAfterLaunch(_proposal.launchPoolInfo, _proposal.distributionInfo);
+        _requireCorrectDistribution(_proposal.launchPoolInfo, _proposal.distributionInfo);
 
         proposals.push(_proposal);
 
-        return proposals.length - 1;
+        uint256 proposalId = proposals.length - 1;
+
+        emit AddProposal(proposalId, msg.sender);
+
+        return proposalId;
     }
 
-    function deployProposal(uint256 proposalId) external virtual onlyOwner returns(address) {
+    function deployProposal(uint256 proposalId) external virtual onlyOwner returns(address payable) {
         LaunchPoolProposal memory proposal = proposals[proposalId];
 
-        if (proposal.uniswapFeeInfo.recipients.length != proposal.uniswapFeeInfo.basisAmounts.length) {
-            revert LengthMismatch();
-        }
-
-        address pool = deploy(
+        address payable pool = deploy(
             proposal.launchPoolImplementation,
             proposal.tokenInfo,
             proposal.launchPoolInfo,
@@ -84,7 +85,7 @@ contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
             proposal.uniswapFeeInfo
         );
 
-        emit DeployedProposal(proposalId, pool);
+        emit DeployProposal(proposalId, pool);
 
         return pool;
     }
@@ -96,7 +97,7 @@ contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
         UniswapPoolInfo memory _uniswapPoolInfo,
         AgentDistributionInfo memory _distributionInfo,
         UniswapFeeInfo memory _uniswapFeeInfo
-    ) public virtual onlyOwner returns(address) {
+    ) public virtual onlyOwner returns(address payable) {
         if (_launchPoolInfo.collateralRecipients.length != _launchPoolInfo.collateralBasisAmounts.length) {
             revert LengthMismatch();
         }
@@ -109,7 +110,7 @@ contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
             revert LengthMismatch();
         }
 
-        _requireAgentPriceHigherAfterLaunch(_launchPoolInfo, _distributionInfo);
+        _requireCorrectDistribution(_launchPoolInfo, _distributionInfo);
       
         ERC1967Proxy proxy = new ERC1967Proxy(
             _launchPoolImplementation, 
@@ -132,16 +133,10 @@ contract AgentFactory is OwnableUpgradeable, UUPSUpgradeable {
         IFeeSetter(_uniswapPoolInfo.hook).setFeesForPair(collateral, agentToken, _uniswapFeeInfo);
         IAuthorizeLaunchPool(_uniswapPoolInfo.hook).setAuthorizedLaunchPool(pool, true);
 
-        emit Deployed(pool);
+        emit DeployLaunchPool(pool);
 
-        return pool;
+        return payable(pool);
     }
 
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
-
-    function _requireAgentPriceHigherAfterLaunch(LaunchPoolInfo memory _launchPoolInfo, AgentDistributionInfo memory _distributionInfo) internal view {
-        if (_distributionInfo.uniswapPoolBasisAmount > _launchPoolInfo.collateralUniswapPoolBasisAmount * _distributionInfo.launchPoolBasisAmount / 1e4) {
-            revert PriceLowerAfterLaunch();
-        }
-    }
 }

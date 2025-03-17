@@ -2,14 +2,9 @@
 pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
-import {PoolKey} from '@uniswap/v4-core/src/types/PoolKey.sol';
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
-import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
-import {MockedERC20} from "../helpers/MockedERC20.sol";
 import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
-import {AgentToken} from "../../src/AgentToken.sol";
 
 contract AgentLaunchPoolReclaimETHTest is AgentFactoryTestUtils {
     
@@ -134,16 +129,14 @@ contract AgentLaunchPoolReclaimETHTest is AgentFactoryTestUtils {
 
         vm.warp(block.timestamp + timeWindow);
 
-        pool.reclaimETHDepositsFor(payable(user));
-
-        vm.expectRevert(AgentLaunchPool.NotDeposited.selector);
-        pool.reclaimETHDepositsFor(payable(user));
+        assertEq(pool.reclaimETHDepositsFor(payable(user)), true);
+        assertEq(pool.reclaimETHDepositsFor(payable(user)), false);
 
         assertEq(pool.deposits(user), 0);
         assertEq(user.balance, 100 ether);
     }
 
-    function test_forbidsReclaimingIfBeneficiaryAlreadyClaimed() public { 
+    function test_doesNotReclaimIfBeneficiaryAlreadyClaimed() public { 
         address user = makeAddr("user");
         vm.deal(user, 100 ether);
 
@@ -155,11 +148,10 @@ contract AgentLaunchPoolReclaimETHTest is AgentFactoryTestUtils {
         vm.warp(block.timestamp + timeWindow);
 
         vm.prank(makeAddr("anon1"));
-        pool.reclaimETHDepositsFor(payable(user));
+        assertEq(pool.reclaimETHDepositsFor(payable(user)), true);
 
         vm.prank(makeAddr("anon2"));
-        vm.expectRevert(AgentLaunchPool.NotDeposited.selector);
-        pool.reclaimETHDepositsFor(payable(user));
+        assertEq(pool.reclaimETHDepositsFor(payable(user)), false);
 
         assertEq(pool.deposits(user), 0);
         assertEq(user.balance, 100 ether);
@@ -201,7 +193,7 @@ contract AgentLaunchPoolReclaimETHTest is AgentFactoryTestUtils {
         assertEq(user.balance, 100 ether - 1 ether);
     }
 
-    function test_forbidsReclaimingIfBeneficiaryNeverDeposited() public { 
+    function test_doesNotReclaimIfBeneficiaryNeverDeposited() public { 
         address user = makeAddr("user");
         vm.deal(user, 100 ether);
 
@@ -213,12 +205,10 @@ contract AgentLaunchPoolReclaimETHTest is AgentFactoryTestUtils {
         vm.warp(block.timestamp + timeWindow);
 
         vm.prank(user);
-        vm.expectRevert(AgentLaunchPool.NotDeposited.selector);
-        pool.reclaimETHDepositsFor(payable(makeAddr("non-depositor")));
+        assertEq(pool.reclaimETHDepositsFor(payable(makeAddr("non-depositor"))), false);
 
         vm.prank(makeAddr("non-depositor"));
-        vm.expectRevert(AgentLaunchPool.NotDeposited.selector);
-        pool.reclaimETHDepositsFor(payable(makeAddr("non-depositor")));
+        assertEq(pool.reclaimETHDepositsFor(payable(makeAddr("non-depositor"))), false);
 
         assertEq(pool.deposits(user), 0.5 ether);
         assertEq(pool.deposits(makeAddr("non-depositor")), 0 ether);

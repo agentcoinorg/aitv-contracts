@@ -26,8 +26,6 @@ contract AgentLaunchPoolDepositERC20Test is AgentFactoryTestUtils {
 
         (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(collateral));
 
-        assertEq(pool.canDeposit(), true);
-
         vm.startPrank(user);
         collateral.approve(address(pool), 1e18);
         pool.depositERC20(1e18);
@@ -134,8 +132,6 @@ contract AgentLaunchPoolDepositERC20Test is AgentFactoryTestUtils {
 
         vm.warp(block.timestamp + timeWindow);
         
-        assertEq(pool.canDeposit(), false);
-
         collateral.approve(address(pool), 1e18);
         vm.expectRevert(AgentLaunchPool.DepositsClosed.selector);
         pool.depositERC20(1e18);
@@ -145,8 +141,6 @@ contract AgentLaunchPoolDepositERC20Test is AgentFactoryTestUtils {
     }
 
     function test_depositOverMaxAmountDoesNotExceedMaxAmount() public {
-        uint256 defaultMaxAmount = 10e18;
-
         address user = makeAddr("user");
         collateral.mint(user, 15e18);
 

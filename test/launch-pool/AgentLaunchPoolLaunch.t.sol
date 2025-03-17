@@ -2,10 +2,10 @@
 pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
-import {PoolKey} from '@uniswap/v4-core/src/types/PoolKey.sol';
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IPoolManager} from '@uniswap/v4-core/src/interfaces/IPoolManager.sol';
-import {BeforeSwapDelta} from '@uniswap/v4-core/src/types/BeforeSwapDelta.sol';
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {BeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 
 import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
 import {MockedERC20} from "../helpers/MockedERC20.sol";
@@ -15,18 +15,23 @@ import {AgentUniswapHook} from "../../src/AgentUniswapHook.sol";
 import {AgentStaking} from "../../src/AgentStaking.sol";
 
 contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
-    
+    MockedERC20 collateral;
+
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
 
         _deployDefaultContracts();
+
+        collateral = new MockedERC20();
     }
 
-    function test_launchesWithCorrectConfig() public { 
+    function test_launchesWithCorrectConfigWithETHCollateral() public { 
         address user = makeAddr("user");
         vm.deal(user, 10000 ether);
 
         (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
+
+        address expectedAgentTokenAddress = pool.computeAgentTokenAddress();
 
         vm.prank(user);
         pool.depositETH{value: 1000 ether}();
@@ -39,17 +44,64 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
         assertNotEq(pool.agentToken(), address(0));
         assertNotEq(pool.agentStaking(), address(0));
 
+        assertEq(pool.totalDeposited(), maxAmountForLaunch);
         assertEq(IERC20(pool.agentToken()).totalSupply(), totalSupply);
         assertEq(IERC20(pool.agentToken()).balanceOf(dao), agentDaoAmount);
         assertEq(IERC20(pool.agentToken()).balanceOf(agentWallet), agentAmount);
         assertEq(IERC20(pool.agentToken()).balanceOf(address(pool)) / 1e15, launchPoolAmount / 1e15); // Rounding because price calculations (unsiwap) are not exact
-        assertGt(IERC20(pool.agentToken()).balanceOf(address(pool)), launchPoolAmount);
+        assertGt(IERC20(pool.agentToken()).balanceOf(address(pool)), launchPoolAmount); // There's at least launchPoolAmount
+        assertEq(pool.agentToken(), expectedAgentTokenAddress);
+        assertEq(dao.balance, daoCollateralBasisAmount * maxAmountForLaunch / 1e4);
+        assertEq(agentWallet.balance, agentWalletCollateralBasisAmount * maxAmountForLaunch / 1e4);
 
         assertEq(AgentToken(pool.agentToken()).name(), "Agent Token");
         assertEq(AgentToken(pool.agentToken()).symbol(), "AGENT");
 
-        (uint256 reserveA, uint256 reserveB, uint totalLiquidity) = _getLiquidity(poolKey, address(0), pool.agentToken(), tickSpacing);
-        uint256 expectedUniswapCollateral = collateralUniswapPoolBasisAmount * pool.totalDeposited() / 1e4;
+        (uint256 reserveA, uint256 reserveB, uint totalLiquidity) = _getLiquidity(poolKey, address(0), tickSpacing);
+        uint256 expectedUniswapCollateral = collateralUniswapPoolBasisAmount * maxAmountForLaunch / 1e4;
+        assertEq((expectedUniswapCollateral > reserveA ? expectedUniswapCollateral - reserveA : reserveA - expectedUniswapCollateral) / 1e15, 0); // Rounding
+        assertEq((uniswapPoolAmount > reserveB ? uniswapPoolAmount - reserveB : reserveB - uniswapPoolAmount) / 1e15, 0); // Rounding
+        assertGt(totalLiquidity, 0);
+    }
+
+    function test_launchesWithCorrectConfigWithERC20Collateral() public { 
+        address user = makeAddr("user");
+        collateral.mint(user, 10000e18);
+
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(collateral));
+
+        address expectedAgentTokenAddress = pool.computeAgentTokenAddress();
+
+        vm.prank(user);
+        collateral.approve(address(pool), 1000e18);
+        vm.prank(user);
+        pool.depositERC20(1000e18);
+
+        vm.warp(block.timestamp + timeWindow);
+
+        pool.launch();
+
+        assertEq(pool.hasLaunched(), true);
+        assertNotEq(pool.agentToken(), address(0));
+        assertNotEq(pool.agentStaking(), address(0));
+
+        assertEq(pool.totalDeposited(), maxAmountForLaunch);
+        assertEq(IERC20(pool.agentToken()).totalSupply(), totalSupply);
+        assertEq(IERC20(pool.agentToken()).balanceOf(dao), agentDaoAmount);
+        assertEq(IERC20(pool.agentToken()).balanceOf(agentWallet), agentAmount);
+        assertEq(IERC20(pool.agentToken()).balanceOf(address(pool)) / 1e15, launchPoolAmount / 1e15); // Rounding because price calculations (unsiwap) are not exact
+        assertGt(IERC20(pool.agentToken()).balanceOf(address(pool)), launchPoolAmount); // There's at least launchPoolAmount
+        assertEq(pool.agentToken(), expectedAgentTokenAddress);
+        assertEq(collateral.balanceOf(dao), daoCollateralBasisAmount * maxAmountForLaunch / 1e4);
+        assertEq(collateral.balanceOf(agentWallet), agentWalletCollateralBasisAmount * maxAmountForLaunch / 1e4);
+
+        assertEq(AgentToken(pool.agentToken()).name(), "Agent Token");
+        assertEq(AgentToken(pool.agentToken()).symbol(), "AGENT");
+
+        (uint256 reserveA, uint256 reserveB, uint totalLiquidity) = _getLiquidity(poolKey, address(collateral), tickSpacing);
+        console.logUint(reserveA);
+        console.logUint(reserveB);
+        uint256 expectedUniswapCollateral = collateralUniswapPoolBasisAmount * maxAmountForLaunch / 1e4;
         assertEq((expectedUniswapCollateral > reserveA ? expectedUniswapCollateral - reserveA : reserveA - expectedUniswapCollateral) / 1e15, 0); // Rounding
         assertEq((uniswapPoolAmount > reserveB ? uniswapPoolAmount - reserveB : reserveB - uniswapPoolAmount) / 1e15, 0); // Rounding
         assertGt(totalLiquidity, 0);
@@ -59,7 +111,7 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
         address user = makeAddr("user");
         vm.deal(user, 10000 ether);
 
-        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
+        (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(0));
 
         vm.prank(user);
         pool.depositETH{value: 1000 ether}();
@@ -75,8 +127,6 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
     }
 
     function test_canLaunchMultipleAgents() public { 
-        MockedERC20 collateral = new MockedERC20();
-
         address user1 = makeAddr("user1");
         address user2 = makeAddr("user2");
         address user3 = makeAddr("user3");
@@ -241,10 +291,10 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
         vm.deal(depositor, 2 ether);
 
         launchPoolImpl = address(new AgentLaunchPoolLaunchDisabled());
-        (AgentLaunchPool pool1, PoolKey memory poolKey1) = _deployDefaultLaunchPool(address(0));
+        (AgentLaunchPool pool1,) = _deployDefaultLaunchPool(address(0));
 
         launchPoolImpl = address(new AgentLaunchPoolCollateralMigrator());
-        (AgentLaunchPool pool2, PoolKey memory poolKey2) = _deployDefaultLaunchPool(address(0));
+        (AgentLaunchPool pool2,) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(depositor);
         pool1.depositETH{value: 1 ether}();
@@ -278,10 +328,10 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
         vm.deal(depositor, 2 ether);
 
         agentTokenImpl = address(new AgentTokenMock());
-        (AgentLaunchPool pool1, PoolKey memory poolKey1) = _deployDefaultLaunchPool(address(0));
+        (AgentLaunchPool pool1,) = _deployDefaultLaunchPool(address(0));
 
         agentTokenImpl = address(new AgentTokenMint());
-        (AgentLaunchPool pool2, PoolKey memory poolKey2) = _deployDefaultLaunchPool(address(0));
+        (AgentLaunchPool pool2,) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(depositor);
         pool1.depositETH{value: 1 ether}();
@@ -340,7 +390,7 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
         {
             address token1 = pool1.agentToken();
         
-            _swapETHForERC20(user, poolKey1, 1 ether);
+            _swapETHForERC20ExactIn(user, poolKey1, 1 ether);
 
             AgentStaking staking1 = AgentStaking(pool1.agentStaking());
 
@@ -372,7 +422,7 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
         // Pool 2
         address token2 = pool2.agentToken();
 
-        _swapETHForERC20(user, poolKey2, 1 ether);
+        _swapETHForERC20ExactIn(user, poolKey2, 1 ether);
 
         AgentStaking staking2 = AgentStaking(pool2.agentStaking());
 
@@ -435,21 +485,21 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
         vm.expectRevert(); // Uniswap wraps the error so no error message
         ExternalSwap.swap(this, buyer, poolKey1, 1 ether); // This is a hack to be able to use expectRevert
 
-        ExternalSwap.swap(this, buyer, poolKey2, 1 ether);
+        _swapETHForERC20ExactIn(buyer, poolKey2, 1 ether);
     }
 
     function externalSwap(address buyer, PoolKey memory poolKey, uint256 amount) external {
-        _swapETHForERC20(buyer, poolKey, amount);
+        _swapETHForERC20ExactIn(buyer, poolKey, amount);
     }
 }
 
 contract AgentUniswapHookDisableSwap is AgentUniswapHook {
     function _beforeSwap(
         address,
-        PoolKey calldata _key,
-        IPoolManager.SwapParams calldata _params,
+        PoolKey calldata,
+        IPoolManager.SwapParams calldata,
         bytes calldata
-    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+    ) internal pure override returns (bytes4, BeforeSwapDelta, uint24) {
         revert ("Swap disabled1");
     }
 }
@@ -458,19 +508,19 @@ contract AgentUniswapHookUpgrade is AgentUniswapHook {
 }
 
 library ExternalSwap {
-  function swap(AgentLaunchPoolLaunchTest test, address buyer, PoolKey memory poolKey, uint256 amount) internal returns (uint256 a) {
+  function swap(AgentLaunchPoolLaunchTest test, address buyer, PoolKey memory poolKey, uint256 amount) internal {
     test.externalSwap(buyer, poolKey, amount);
   }
 }
 
 contract AgentStakingDisabled is AgentStaking {
-    function stake(uint256 amount) public override {
+    function stake(uint256) public pure override {
         revert("Staking is disabled");
     }
 }
 
 contract AgentUnstakingDisabled is AgentStaking {
-    function unstake(uint256 amount) public override {
+    function unstake(uint256) public pure override {
         revert("Unstaking is disabled");
     }
 }
@@ -488,7 +538,7 @@ contract AgentTokenMint is AgentToken {
 }
 
 contract AgentLaunchPoolLaunchDisabled is AgentLaunchPool {
-    function launch() external view override {
+    function launch() external pure override {
         revert ("Launch disabled");
     }
 }

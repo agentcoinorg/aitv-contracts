@@ -2,25 +2,15 @@
 pragma solidity ^0.8.0;
 
 import {console} from "forge-std/Test.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Currency} from '@uniswap/v4-core/src/types/Currency.sol';
-import {PoolId} from '@uniswap/v4-core/src/types/PoolId.sol';
-import {PoolKey} from '@uniswap/v4-core/src/types/PoolKey.sol';
-import {Commands} from "@uniswap/universal-router/src/libraries/Commands.sol";
-import {IV4Router} from "@uniswap/v4-periphery/src/interfaces/IV4Router.sol";
-import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
-import {IUniversalRouter} from "@uniswap/universal-router/src/interfaces/IUniversalRouter.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {IHooks} from '@uniswap/v4-core/src/libraries/Hooks.sol';
-import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol";
+import {IHooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {TransientStateLibrary} from "@uniswap/v4-core/src/libraries/TransientStateLibrary.sol";
-import {IPoolManager} from '@uniswap/v4-core/src/interfaces/IPoolManager.sol';
-import { TickMath } from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import { Currency } from '@uniswap/v4-core/src/types/Currency.sol';
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 
 import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
-import {IAgentLaunchPool} from "../../src/interfaces/IAgentLaunchPool.sol";
 import {TokenInfo} from "../../src/types/TokenInfo.sol";
 import {LaunchPoolInfo} from "../../src/types/LaunchPoolInfo.sol";
 import {UniswapPoolInfo} from "../../src/types/UniswapPoolInfo.sol";
@@ -38,7 +28,6 @@ abstract contract AgentFactoryTestUtils is AgentUniswapHookDeployer, UniswapTest
     using StateLibrary for IPoolManager;
     using TransientStateLibrary for IPoolManager;
     
-    address public uniswapPositionManager = vm.envAddress("BASE_POSITION_MANAGER");
     address owner = makeAddr("owner");
     address agentWallet = makeAddr("agentWallet");
     address dao = makeAddr("dao");
@@ -53,6 +42,7 @@ abstract contract AgentFactoryTestUtils is AgentUniswapHookDeployer, UniswapTest
     string tokenName = "Agent Token";
     string tokenSymbol = "AGENT";
     uint256 totalSupply = 10_000_000 * 1e18;
+    
     uint256 daoCollateralBasisAmount = 1_000;
     uint256 agentWalletCollateralBasisAmount = 2_500;
     uint256 timeWindow = 7 days;
@@ -82,6 +72,7 @@ abstract contract AgentFactoryTestUtils is AgentUniswapHookDeployer, UniswapTest
 
     constructor() {
         uniswapPoolManager = vm.envAddress("BASE_POOL_MANAGER");
+        uniswapPositionManager = vm.envAddress("BASE_POSITION_MANAGER");
         uniswapUniversalRouter = vm.envAddress("BASE_UNIVERSAL_ROUTER");
     }
 
@@ -150,7 +141,7 @@ abstract contract AgentFactoryTestUtils is AgentUniswapHookDeployer, UniswapTest
         return (pool, _getPoolKey(pool, proposal));
     }
 
-    function _getPoolKey(AgentLaunchPool pool, LaunchPoolProposal memory proposal) internal returns (PoolKey memory) {
+    function _getPoolKey(AgentLaunchPool pool, LaunchPoolProposal memory proposal) internal view returns (PoolKey memory) {
         return PoolKey({
             currency0: Currency.wrap(proposal.launchPoolInfo.collateral < pool.computeAgentTokenAddress() ? proposal.launchPoolInfo.collateral : pool.computeAgentTokenAddress()),
             currency1: Currency.wrap(proposal.launchPoolInfo.collateral < pool.computeAgentTokenAddress() ? pool.computeAgentTokenAddress() : proposal.launchPoolInfo.collateral),
@@ -160,11 +151,11 @@ abstract contract AgentFactoryTestUtils is AgentUniswapHookDeployer, UniswapTest
         });
     }
 
-    function _buildDefaultLaunchPoolProposal(address collateral) internal returns(LaunchPoolProposal memory) {
+    function _buildDefaultLaunchPoolProposal(address collateral) internal view returns(LaunchPoolProposal memory) {
         return _buildDefaultLaunchPoolProposalWithHook(collateral, address(hook));
     }
 
-    function _buildDefaultLaunchPoolProposalWithHook(address collateral, address _hook) internal returns(LaunchPoolProposal memory) {
+    function _buildDefaultLaunchPoolProposalWithHook(address collateral, address _hook) internal view returns(LaunchPoolProposal memory) {
         TokenInfo memory tokenInfo = TokenInfo({
             owner: tokenOwner,
             name: tokenName,

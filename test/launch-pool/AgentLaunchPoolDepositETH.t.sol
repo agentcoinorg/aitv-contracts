@@ -22,8 +22,6 @@ contract AgentLaunchPoolDepositETHTest is AgentFactoryTestUtils {
 
         (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(0));
 
-        assertEq(pool.canDeposit(), true);
-
         vm.prank(user);
         pool.depositETH{value: 1 ether}();
 
@@ -125,8 +123,6 @@ contract AgentLaunchPoolDepositETHTest is AgentFactoryTestUtils {
 
         vm.warp(block.timestamp + timeWindow);
         
-        assertEq(pool.canDeposit(), false);
-
         vm.expectRevert(AgentLaunchPool.DepositsClosed.selector);
         pool.depositETH{value: 1 ether}();
 
@@ -135,8 +131,6 @@ contract AgentLaunchPoolDepositETHTest is AgentFactoryTestUtils {
     }
 
     function test_forbidsDepositOverMaxAmount() public {
-        uint256 defaultMaxAmount = 10 ether;
-
         address user = makeAddr("user");
         vm.deal(user, 20 ether);
 

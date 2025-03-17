@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.28;
+pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {PoolKey} from '@uniswap/v4-core/src/types/PoolKey.sol';
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 
 import {AgentToken} from "../../src/AgentToken.sol";
 import {AgentStaking} from "../../src/AgentStaking.sol";
@@ -37,7 +37,7 @@ contract AgentLaunchPoolStakeTest is AgentFactoryTestUtils {
 
         address token = pool.agentToken();
 
-        _swapETHForERC20(user, poolKey, 1 ether);
+        _swapETHForERC20ExactIn(user, poolKey, 1 ether);
 
         AgentStaking staking = AgentStaking(pool.agentStaking());
 

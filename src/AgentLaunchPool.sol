@@ -18,6 +18,7 @@ import {LaunchPoolInfo} from "./types/LaunchPoolInfo.sol";
 import {UniswapPoolInfo} from "./types/UniswapPoolInfo.sol";
 import {AgentDistributionInfo} from "./types/AgentDistributionInfo.sol";
 import {UniswapPoolDeployer} from "./UniswapPoolDeployer.sol";
+import {DistributionAndPriceChecker} from "./DistributionAndPriceChecker.sol";
 
 /// @title AgentLaunchPool
 /// @notice The following is a contract to launch Agent Tokens
@@ -30,7 +31,7 @@ import {UniswapPoolDeployer} from "./UniswapPoolDeployer.sol";
 /// - Create and fund a liquidity pool on Uniswap
 /// - Distribute tokens to the specified recipients and the pool
 /// If the launch fails, users can reclaim their deposits
-contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgradeable, IAgentLaunchPool {
+contract AgentLaunchPool is UniswapPoolDeployer, DistributionAndPriceChecker, OwnableUpgradeable, UUPSUpgradeable, IAgentLaunchPool {
     using SafeERC20 for IERC20;
 
     error AlreadyDeployed();
@@ -47,10 +48,10 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     error MaxAmountReached();
     error InvalidCollateral();
 
-    event LiquidityPoolCreated(address pair);
-    event Claim(address indexed recipient, address claimer, uint256 deposit, uint256 amountClaimed);
+    event Launch(address agentToken, address agentStaking);
+    event Claim(address indexed recipient, address indexed claimer, uint256 deposit, uint256 amountClaimed);
     event Deposit(address indexed beneficiary, address indexed depositor, uint256 amount);
-    event ReclaimDeposits(address indexed sender, uint256 amount);
+    event ReclaimDeposits(address indexed beneficiary, address indexed sender, uint256 amount);
 
     TokenInfo public tokenInfo;
     LaunchPoolInfo public launchPoolInfo;
@@ -91,6 +92,8 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
             revert LengthMismatch();
         }
 
+        _requireCorrectDistribution(_launchPoolInfo, _distributionInfo);
+
         tokenInfo = _tokenInfo;
         launchPoolInfo = _launchPoolInfo;
         uniswapPoolInfo = _uniswapPoolInfo;
@@ -129,52 +132,35 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         _distributeCollateral();
 
         _setupInitialLiquidity(launchPoolInfo.collateral, agentTokenAddress);
+
+        emit Launch(agentTokenAddress, agentStaking);
     }
 
-    function computeAgentTokenAddress() external virtual returns(address) {
+    function computeAgentTokenAddress() external virtual view returns(address) {
         if (agentToken != address(0)) {
             return agentToken;
         }
-
-        uint256 length = distributionInfo.recipients.length; // This is the same as the length of basisAmounts because of the check in the constructor
-
-        address[] memory airdropRecipients = new address[](length + 1);
-        airdropRecipients[0] = address(this);
-        for (uint256 i = 0; i < length; i++) {
-            airdropRecipients[i + 1] = distributionInfo.recipients[i];
-        }
-
-        uint256[] memory airdropAmounts = new uint256[](length + 1);
-        airdropAmounts[0] = (distributionInfo.launchPoolBasisAmount + distributionInfo.uniswapPoolBasisAmount) * tokenInfo.totalSupply / 10000;
-        for (uint256 i = 0; i < length; i++) {
-            airdropAmounts[i + 1] = distributionInfo.basisAmounts[i] * tokenInfo.totalSupply / 10000;
-        }
-
-        bytes memory tokenCtorArgs = abi.encodeCall(IAgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, tokenInfo.owner, airdropRecipients, airdropAmounts));
+        
+        bytes memory tokenCtorArgs = _getAgentTokenCtorArgs(tokenInfo.owner);
         bytes memory proxyCtorArgs = abi.encode(tokenInfo.tokenImplementation, tokenCtorArgs);
 
         return computeCreate2Address(address(this), bytes32(0), type(ERC1967Proxy).creationCode, proxyCtorArgs);
     }
 
     /// @notice Deposit ETH collateral to receive Agent Tokens after the launch
-    function depositETH() external payable {
+    function depositETH() external payable virtual {
         depositETHFor(msg.sender);
     }
 
     // @notice Deposit ERC20 collateral to receive Agent Tokens after the launch
     /// @param amount The amount of tokens to deposit
-    function depositERC20(uint256 amount) external {
+    function depositERC20(uint256 amount) external virtual {
         depositERC20For(msg.sender, amount);
-    }
-
-    /// @notice Check if the user can deposit collateral    
-    function canDeposit() external view returns (bool) {
-        return !hasLaunched && !_hasTimeWindowPassed();
     }
 
     /// @notice Claim tokens for multiple recipients
     /// @param _recipients The addresses of the recipients
-    function multiClaim(address[] calldata _recipients) external {
+    function multiClaim(address[] calldata _recipients) external virtual {
         if (!hasLaunched) {
             revert NotLaunched();
         }
@@ -186,7 +172,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
 
     /// @notice Deposit ETH for the beneficiary to receive Agent Tokens after the launch
     /// @param beneficiary The address of the beneficiary
-    function depositETHFor(address beneficiary) public payable {
+    function depositETHFor(address beneficiary) public payable virtual {
         if (launchPoolInfo.collateral != address(0)) {
             revert InvalidCollateral();
         }
@@ -205,8 +191,9 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         totalDeposited += depositAmount;
         deposits[beneficiary] += depositAmount;
 
+        // Refund the user if they sent more than the max amount
         if (depositAmount < msg.value) {
-            payable(beneficiary).call{value: msg.value - depositAmount}("");
+            payable(beneficiary).call{value: msg.value - depositAmount}(""); 
         }
 
         emit Deposit(beneficiary, msg.sender, depositAmount);
@@ -215,7 +202,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     /// @notice Deposit ERC20 for the beneficiary to receive Agent Tokens after the launch
     /// @param beneficiary The address of the beneficiary
     /// @param amount The amount of tokens to deposit
-    function depositERC20For(address beneficiary, uint256 amount) public {
+    function depositERC20For(address beneficiary, uint256 amount) public virtual {
         if (launchPoolInfo.collateral == address(0)) {
             revert InvalidCollateral();
         }
@@ -241,7 +228,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
 
     /// @notice Reclaim ETH deposits if the launch has failed
     /// The launch has failed if the time window has passed and the minimum amount has not been reached
-    function reclaimETHDepositsFor(address payable beneficiary) external {
+    function reclaimETHDepositsFor(address payable beneficiary) external virtual returns(bool) {
         if (launchPoolInfo.collateral != address(0)) {
             revert InvalidCollateral();
         }
@@ -255,7 +242,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         }
 
         if (deposits[beneficiary] == 0) {
-            revert NotDeposited();
+            return false;
         }
 
         uint256 amount = deposits[beneficiary];
@@ -263,12 +250,14 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
 
         beneficiary.call{value: amount}("");
 
-        emit ReclaimDeposits(beneficiary, amount);
+        emit ReclaimDeposits(beneficiary, msg.sender, amount);
+
+        return true;
     }
 
     /// @notice Reclaim ERC20 deposits if the launch has failed
     /// The launch has failed if the time window has passed and the minimum amount has not been reached
-    function reclaimERC20DepositsFor(address beneficiary) external {
+    function reclaimERC20DepositsFor(address beneficiary) external virtual returns(bool) {
         if (launchPoolInfo.collateral == address(0)) {
             revert InvalidCollateral();
         }
@@ -282,16 +271,17 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         }
 
         if (deposits[beneficiary] == 0) {
-            revert NotDeposited();
+            return false;
         }
 
         uint256 amount = deposits[beneficiary];
         deposits[beneficiary] = 0;
 
-   
         IERC20(launchPoolInfo.collateral).safeTransfer(beneficiary, amount);
 
-        emit ReclaimDeposits(beneficiary, amount);
+        emit ReclaimDeposits(beneficiary, msg.sender, amount);
+
+        return true;
     }
 
     /// @notice Fallback function to deposit ETH
@@ -302,7 +292,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     /// @notice Claim tokens for the recipient that will be transferred from the contract to the recipient
     /// @param _recipient The address of the recipient
     /// @return If the claim was successful or not
-    function claim(address _recipient) public returns (bool) {
+    function claim(address _recipient) public virtual returns (bool) {
         if (!hasLaunched) {
             revert NotLaunched();
         }
@@ -312,7 +302,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
 
     /// @notice Check if the recipient can claim tokens
     /// @param _recipient The address of the recipient
-    function canClaim(address _recipient) public view returns (bool) {
+    function canClaim(address _recipient) public virtual view returns (bool) {
         return hasLaunched && deposits[_recipient] > 0;
     }
 
@@ -343,29 +333,15 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     /// @notice Deploys the agent token contract and initializes it
     /// @param _owner The owner of the agent token
     /// @return The address of the deployed contract
-    function _deployAgentToken(address _owner) internal returns (address) {
+    function _deployAgentToken(address _owner) internal virtual returns (address) {
         if (agentToken != address(0)) {
             revert AlreadyDeployed();
         }
 
-        uint256 length = distributionInfo.recipients.length; // This is the same as the length of basisAmounts because of the check in the constructor
-
-        address[] memory airdropRecipients = new address[](length + 1);
-        airdropRecipients[0] = address(this);
-        for (uint256 i = 0; i < length; i++) {
-            airdropRecipients[i + 1] = distributionInfo.recipients[i];
-        }
-
-        uint256[] memory airdropAmounts = new uint256[](length + 1);
-        airdropAmounts[0] = (distributionInfo.launchPoolBasisAmount + distributionInfo.uniswapPoolBasisAmount) * tokenInfo.totalSupply / 1e4;
-        for (uint256 i = 0; i < length; i++) {
-            airdropAmounts[i + 1] = distributionInfo.basisAmounts[i] * tokenInfo.totalSupply / 1e4;
-        }
+        bytes memory tokenCtorArgs = _getAgentTokenCtorArgs(_owner);
 
         // Deploy the proxy contract
-        ERC1967Proxy proxy = new ERC1967Proxy{salt: bytes32(0)}(
-            tokenInfo.tokenImplementation, abi.encodeCall(IAgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, _owner, airdropRecipients, airdropAmounts))
-        );
+        ERC1967Proxy proxy = new ERC1967Proxy{salt: bytes32(0)}(tokenInfo.tokenImplementation, tokenCtorArgs);
 
         agentToken = address(proxy);
 
@@ -375,7 +351,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     /// @notice Deploys the agent token staking contract and initializes it
     /// @param _owner The owner of the staking contract
     /// @param _agentTokenAddress The address of the agent token
-    function _deployAgentStaking(address _owner, address _agentTokenAddress) internal {
+    function _deployAgentStaking(address _owner, address _agentTokenAddress) internal virtual {
         if (agentStaking != address(0)) {
             revert AlreadyDeployed();
         }
@@ -425,7 +401,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
                 startingPrice: _calculateUniswapStartingPrice(
                     _collateral,
                     _agentTokenAddress,
-                    requiredCollateralAmount,  // We use the total collateral deposited and launchPoolAmount (agent tokens) since we want to starting price 
+                    requiredCollateralAmount,  // We use the total collateral deposited and launchPoolAmount (agent tokens) since we want the starting price 
                     uniswapPoolAmount // to be the same as what the launch pool depositors bought in for
                 ),
                 hook: uniswapPoolInfo.hook,
@@ -454,18 +430,38 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
     /// The time window is the time that users have to deposit ETH before the launch
     /// After the time window has passed, the launch can be initiated
     /// @return If the time window has passed
-    function _hasTimeWindowPassed() internal view returns (bool) {
+    function _hasTimeWindowPassed() internal virtual view returns (bool) {
         return launchPoolCreatedOn + launchPoolInfo.timeWindow <= block.timestamp;
     }
 
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
+
+    function _getAgentTokenCtorArgs(address _owner) internal virtual view returns (bytes memory) {
+        uint256 length = distributionInfo.recipients.length; // This is the same as the length of basisAmounts because of the check in the constructor
+
+        address[] memory airdropRecipients = new address[](length + 1);
+        airdropRecipients[0] = address(this);
+        for (uint256 i = 0; i < length; i++) {
+            airdropRecipients[i + 1] = distributionInfo.recipients[i];
+        }
+
+        uint256[] memory airdropAmounts = new uint256[](length + 1);
+        airdropAmounts[0] = (distributionInfo.launchPoolBasisAmount + distributionInfo.uniswapPoolBasisAmount) * tokenInfo.totalSupply / 10000;
+        for (uint256 i = 0; i < length; i++) {
+            airdropAmounts[i + 1] = distributionInfo.basisAmounts[i] * tokenInfo.totalSupply / 10000;
+        }
+
+        bytes memory tokenCtorArgs = abi.encodeCall(IAgentToken.initialize, (tokenInfo.name, tokenInfo.symbol, _owner, airdropRecipients, airdropAmounts));
+
+        return tokenCtorArgs;
+    }
 
     function _calculateUniswapStartingPrice(
         address _collateral,
         address _agentToken,
         uint256 _collateralAmount,
         uint256 _agentAmount
-    ) internal pure returns (uint160) {
+    ) internal virtual pure returns (uint160) {
         uint256 currency0Amount = _collateral < _agentToken ? _collateralAmount : _agentAmount;
         uint256 currency1Amount = _collateral < _agentToken ? _agentAmount : _collateralAmount;
 
@@ -482,7 +478,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, OwnableUpgradeable, UUPSUpgrade
         bytes32 salt,
         bytes memory bytecode,
         bytes memory constructorArgs
-    ) internal pure virtual returns (address) {
+    ) internal virtual pure returns (address) {
         // Append constructor arguments to bytecode
         bytes memory initCode = abi.encodePacked(bytecode, constructorArgs);
 

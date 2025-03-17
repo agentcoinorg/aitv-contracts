@@ -1524,7 +1524,7 @@
   resolved "https://registry.yarnpkg.com/@uniswap/lib/-/lib-1.1.4.tgz#85100cddcdb61e0b7eae9b8e9e21525e147c47f3"
   integrity sha512-5una/3a2dPzPN0moDBsa9LfTxCjZjEiLEkN75wjwplmDU4oFqneVAzVA3Heq+DadEk3k17cszAbSMcaIu7hLfg==
 
-"@uniswap/permit2-sdk@^1.3.0":
+"@uniswap/permit2-sdk@1.3.0":
   version "1.3.0"
   resolved "https://registry.yarnpkg.com/@uniswap/permit2-sdk/-/permit2-sdk-1.3.0.tgz#b54124e570f0adbaca9d39b2de3054fd7d3798a1"
   integrity sha512-LstYQWP47dwpQrgqBJ+ysFstne9LgI5FGiKHc2ewjj91MTY8Mq1reocu6U/VDncdR5ef30TUOcZ7gPExRY8r6Q==
@@ -1532,7 +1532,7 @@
     ethers "^5.7.0"
     tiny-invariant "^1.1.0"
 
-"@uniswap/universal-router@^2.0.0":
+"@uniswap/universal-router@2.0.0":
   version "2.0.0"
   resolved "https://registry.yarnpkg.com/@uniswap/universal-router/-/universal-router-2.0.0.tgz#ae6161c23ebfae6553ae8d730593ee94aef693a7"
   integrity sha512-6V21kuf547hE1gLfLQ89gv41DMSJY1ZZKer/k7CBagNPJ0oDnUyme+qQPtdoWknyUgSKd1M6sDm/WpocjVmPlA==
@@ -1564,7 +1564,7 @@
   resolved "https://registry.yarnpkg.com/@uniswap/v3-core/-/v3-core-1.0.0.tgz#6c24adacc4c25dceee0ba3ca142b35adbd7e359d"
   integrity sha512-kSC4djMGKMHj7sLMYVnn61k9nu+lHjMIxgg9CDQT+s2QYLoA56GbSK9Oxr+qJXzzygbkrmuY6cwgP6cW2JXPFA==
 
-"@uniswap/v4-core@^1.0.1":
+"@uniswap/v4-core@1.0.1":
   version "1.0.1"
   resolved "https://registry.yarnpkg.com/@uniswap/v4-core/-/v4-core-1.0.1.tgz#d7bf898306a8ab3a89756a54191b38b6af180440"
   integrity sha512-+UITeH0s/EXJ698nKFoWX6ZW2dOnIDjhUI3AJ0Hg3v+w/Sy4JIDsgmsQSeNu1FAEc72xm4muKY6YuXu9bR2X4Q==

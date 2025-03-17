@@ -2,56 +2,60 @@
 pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
 
 import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
 import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
 import {UniswapFeeInfo} from "../../src/types/UniswapFeeInfo.sol";
+import {MockedERC20} from "../helpers/MockedERC20.sol";
 import {UniswapPoolDeployer} from "../../src/UniswapPoolDeployer.sol";
 
-contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, UniswapPoolDeployer {
+contract AgentLaunchPoolUniswapWithERC20CollateralTest is AgentFactoryTestUtils, UniswapPoolDeployer {
+    MockedERC20 collateral;
     
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
 
         _deployDefaultContracts();
+   
+        collateral = new MockedERC20();
     }
 
     function test_canBuyTokensExactInputAfterLaunch() public { 
         (, PoolKey memory poolKey, IERC20 agent) = _launch(makeAddr("depositor"));
 
         address buyer = makeAddr("buyer");
-        vm.deal(buyer, 2 ether);
+        collateral.mint(buyer, 2e18);
         
-        assertEq(buyer.balance, 2 ether);
+        assertEq(collateral.balanceOf(buyer), 2e18);
         assertEq(agent.balanceOf(buyer), 0);
 
-        uint256 agentReceived = _swapETHForERC20ExactIn(buyer, poolKey, 1 ether);
+        uint256 agentReceived = _swapERC20ForERC20ExactIn(buyer, poolKey, 1e18, address(collateral));
 
         assertGt(agentReceived, 0);
         assertEq(agent.balanceOf(buyer), agentReceived);
-        assertEq(buyer.balance, 2 ether - 1 ether);
+        assertEq(collateral.balanceOf(buyer), 2e18 - 1e18);
     }
 
     function test_canBuyTokensExactOutputAfterLaunch() public { 
         (, PoolKey memory poolKey, IERC20 agent) = _launch(makeAddr("depositor"));
 
         address buyer = makeAddr("buyer");
-        vm.deal(buyer, 10 ether);
+        collateral.mint(buyer, 10e18);
         
-        assertEq(buyer.balance, 10 ether);
+        assertEq(collateral.balanceOf(buyer), 10e18);
         assertEq(agent.balanceOf(buyer), 0);
 
-        uint256 collateralSpent = _swapETHForERC20ExactOut(buyer, poolKey, 1e18);
+        uint256 collateralSpent = _swapERC20ForERC20ExactOut(buyer, poolKey, 1e18, address(collateral));
 
         assertEq(agent.balanceOf(buyer), 1e18);
-        assertEq(buyer.balance, 10 ether - collateralSpent);
+        assertEq(collateral.balanceOf(buyer), 10e18 - collateralSpent);
         assertGt(collateralSpent, 0);
-        assertLt(collateralSpent, 10 ether);
+        assertLt(collateralSpent, 10e18);
     }
 
     function test_canSellTokensExactInputAfterLaunch() public { 
@@ -61,43 +65,43 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
 
         // Depositor can sell tokens
 
-        uint256 depositorCollateralBalance = depositor.balance;
+        uint256 depositorCollateralBalance = collateral.balanceOf(depositor);
         uint256 depositorAgentTokenBalance = agent.balanceOf(depositor);
 
-        uint256 depositorCollateralReceived = _swapERC20ForETHExactIn(depositor, poolKey, depositorAgentTokenBalance);
+        uint256 depositorCollateralReceived = _swapERC20ForERC20ExactIn(depositor, poolKey, depositorAgentTokenBalance, address(agent));
 
-        assertGt(depositor.balance, depositorCollateralBalance);
-        assertEq(depositor.balance, depositorCollateralBalance + depositorCollateralReceived);
+        assertGt(collateral.balanceOf(depositor), depositorCollateralBalance);
+        assertEq(collateral.balanceOf(depositor), depositorCollateralBalance + depositorCollateralReceived);
         assertGt(depositorCollateralReceived, 0);
         assertEq(agent.balanceOf(depositor), 0);
 
         // Post launch buyer can sell tokens
 
         address anon = makeAddr("anon");
-        vm.deal(anon, 10 ether);
+        collateral.mint(anon, 10e18);
 
-        uint256 anonCollateralBalance = anon.balance;
+        uint256 anonCollateralBalance = collateral.balanceOf(anon);
         uint256 anonAgentTokenBalance = agent.balanceOf(anon);
         
-        assertEq(anonCollateralBalance, 10 ether);
+        assertEq(anonCollateralBalance, 10e18);
         assertEq(anonAgentTokenBalance, 0);
 
         // First buy so that anon has some agent tokens to sell
-        uint256 anonAgentReceived = _swapETHForERC20ExactIn(anon, poolKey, 1 ether);
+        uint256 anonAgentReceived = _swapERC20ForERC20ExactIn(anon, poolKey, 1e18, address(collateral));
 
-        uint256 lastAnonCollateralBalance = anon.balance;
+        uint256 lastAnonCollateralBalance = collateral.balanceOf(anon);
         uint256 lastAnonAgentTokenBalance = agent.balanceOf(anon);
 
         assertGt(anonAgentReceived, 0);
         assertEq(lastAnonAgentTokenBalance, anonAgentReceived);
-        assertEq(lastAnonCollateralBalance, anonCollateralBalance - 1 ether);
+        assertEq(lastAnonCollateralBalance, anonCollateralBalance - 1e18);
 
         // Sell the agent tokens
 
-        uint256 anonCollateralReceived = _swapERC20ForETHExactIn(anon, poolKey, lastAnonAgentTokenBalance);
+        uint256 anonCollateralReceived = _swapERC20ForERC20ExactIn(anon, poolKey, lastAnonAgentTokenBalance, address(agent));
 
         assertGt(anonCollateralReceived, 0);
-        assertEq(anon.balance, lastAnonCollateralBalance + anonCollateralReceived);
+        assertEq(collateral.balanceOf(anon), lastAnonCollateralBalance + anonCollateralReceived);
         assertEq(agent.balanceOf(anon), 0);
     }
 
@@ -108,71 +112,71 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
 
         // Depositor can sell tokens
 
-        uint256 depositorCollateralBalance = depositor.balance;
+        uint256 depositorCollateralBalance = collateral.balanceOf(depositor);
         uint256 depositorAgentTokenBalance = agent.balanceOf(depositor);
 
-        uint256 depositorAgentSpent = _swapERC20ForETHExactOut(depositor, poolKey, 1 ether);
+        uint256 depositorAgentSpent = _swapERC20ForERC20ExactOut(depositor, poolKey, 1e18, address(agent));
 
-        assertEq(depositor.balance, depositorCollateralBalance + 1 ether);
+        assertEq(collateral.balanceOf(depositor), depositorCollateralBalance + 1e18);
         assertGt(depositorAgentSpent, 0);
         assertEq(agent.balanceOf(depositor), depositorAgentTokenBalance - depositorAgentSpent);
 
         // Post launch buyer can sell tokens
 
         address anon = makeAddr("anon");
-        vm.deal(anon, 10 ether);
+        collateral.mint(anon, 10e18);
 
-        uint256 anonCollateralBalance = anon.balance;
+        uint256 anonCollateralBalance = collateral.balanceOf(anon);
         uint256 anonAgentTokenBalance = agent.balanceOf(anon);
         
-        assertEq(anonCollateralBalance, 10 ether);
+        assertEq(anonCollateralBalance, 10e18);
         assertEq(anonAgentTokenBalance, 0);
 
         // First buy so that anon has some agent tokens to sell
        
-        uint256 anonAgentReceived = _swapETHForERC20ExactIn(anon, poolKey, 2 ether);
+        uint256 anonAgentReceived = _swapERC20ForERC20ExactIn(anon, poolKey, 2e18, address(collateral));
 
-        uint256 lastAnonCollateralBalance = anon.balance;
+        uint256 lastAnonCollateralBalance = collateral.balanceOf(anon);
         uint256 lastAnonAgentTokenBalance = agent.balanceOf(anon);
 
         assertGt(anonAgentReceived, 0);
         assertEq(lastAnonAgentTokenBalance, anonAgentReceived);
-        assertEq(lastAnonCollateralBalance, anonCollateralBalance - 2 ether);
+        assertEq(lastAnonCollateralBalance, anonCollateralBalance - 2e18);
 
         // Sell the agent tokens
        
-        uint256 anonAgentSpent = _swapERC20ForETHExactOut(anon, poolKey, 1 ether);
+        uint256 anonAgentSpent = _swapERC20ForERC20ExactOut(anon, poolKey, 1e18, address(agent));
 
         assertGt(anonAgentSpent, 0);
-        assertEq(anon.balance, lastAnonCollateralBalance + 1 ether);
+        assertEq(collateral.balanceOf(anon), lastAnonCollateralBalance + 1e18);
         assertEq(agent.balanceOf(anon), lastAnonAgentTokenBalance - anonAgentSpent);
     }
 
     function test_feeRecipientsReceiveFeesWhenBuyingAgentWithExactIn() public returns(AgentLaunchPool, PoolKey memory) { 
         (AgentLaunchPool pool, PoolKey memory poolKey, IERC20 agent) = _launch(makeAddr("depositor"));
 
-        uint256 daoCollateralBalance = dao.balance;
+        uint256 daoCollateralBalance = collateral.balanceOf(dao);
         uint256 daoAgentTokenBalance = agent.balanceOf(dao);
         
-        uint256 agentCollateralBalance = agentWallet.balance;
+        uint256 agentCollateralBalance = collateral.balanceOf(agentWallet);
         uint256 agentAgentTokenBalance = agent.balanceOf(agentWallet);
         
         address buyer = makeAddr("buyer");
-        vm.deal(buyer, 10 ether);
+        collateral.mint(buyer, 10e18);
 
         uint256 totalSupply = agent.totalSupply();
 
-        _swapETHForERC20ExactIn(buyer, poolKey, 2 ether);
+        _swapERC20ForERC20ExactIn(buyer, poolKey, 2e18, address(collateral));
 
         // There should be no burning of agent in this scenario
         assertEq(agent.totalSupply(), totalSupply); 
 
-        assertGt(dao.balance, daoCollateralBalance);
-        assertEq(dao.balance, daoCollateralBalance + 2 ether * daoFeeBasisAmount / 1e4);
+        assertGt(collateral.balanceOf(dao), daoCollateralBalance);
+        assertEq(collateral.balanceOf(dao), daoCollateralBalance + 2e18 * daoFeeBasisAmount / 1e4);
         assertEq(agent.balanceOf(dao), daoAgentTokenBalance);
 
-        assertGt(agentWallet.balance, agentCollateralBalance);
-        assertEq(agentWallet.balance, agentCollateralBalance + 2 ether * agentWalletFeeBasisAmount / 1e4);
+        assertGt(collateral.balanceOf(agentWallet), agentCollateralBalance);
+        assertEq(collateral.balanceOf(agentWallet), agentCollateralBalance + 2e18 * agentWalletFeeBasisAmount / 1e4);
         assertEq(agent.balanceOf(agentWallet), agentAgentTokenBalance);
 
         return (pool, poolKey);
@@ -182,33 +186,33 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         (AgentLaunchPool pool, PoolKey memory poolKey, IERC20 agent) = _launch(makeAddr("depositor"));
       
         address buyer = makeAddr("buyer");
-        vm.deal(buyer, 10 ether);
+        collateral.mint(buyer, 10e18);
 
         uint256 totalSupply1 = agent.totalSupply();
 
-        _swapETHForERC20ExactIn(buyer, poolKey, 2 ether);
+        _swapERC20ForERC20ExactIn(buyer, poolKey, 2e18, address(collateral));
 
         uint256 totalSupply2 = agent.totalSupply();
         // There should be no burning of agent in this scenario
         assertEq(totalSupply2, totalSupply1);
        
-        uint256 daoCollateralBalance = dao.balance;
+        uint256 daoCollateralBalance = collateral.balanceOf(dao);
         uint256 daoAgentTokenBalance = agent.balanceOf(dao);
         
-        uint256 agentCollateralBalance = agentWallet.balance;
+        uint256 agentCollateralBalance = collateral.balanceOf(agentWallet);
         uint256 agentAgentTokenBalance = agent.balanceOf(agentWallet);
 
-        _swapERC20ForETHExactOut(buyer, poolKey, 1 ether);
+        _swapERC20ForERC20ExactOut(buyer, poolKey, 1e18, address(agent));
 
        // There should be no burning of agent in this scenario
         assertEq(agent.totalSupply(), totalSupply2);
 
-        assertGt(dao.balance, daoCollateralBalance);
-        assertEq(dao.balance, daoCollateralBalance + 1 ether * daoFeeBasisAmount / 1e4);
+        assertGt(collateral.balanceOf(dao), daoCollateralBalance);
+        assertEq(collateral.balanceOf(dao), daoCollateralBalance + 1e18 * daoFeeBasisAmount / 1e4);
         assertEq(agent.balanceOf(dao), daoAgentTokenBalance);
 
-        assertGt(agentWallet.balance, agentCollateralBalance);
-        assertEq(agentWallet.balance, agentCollateralBalance + 1 ether * agentWalletFeeBasisAmount / 1e4);
+        assertGt(collateral.balanceOf(agentWallet), agentCollateralBalance);
+        assertEq(collateral.balanceOf(agentWallet), agentCollateralBalance + 1e18 * agentWalletFeeBasisAmount / 1e4);
         assertEq(agent.balanceOf(agentWallet), agentAgentTokenBalance);
 
         return (pool, poolKey);
@@ -226,7 +230,7 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
 
         assertGt(depositorAgentTokenBalance, 0);
 
-        _swapERC20ForETHExactIn(depositor, poolKey, depositorAgentTokenBalance);
+        _swapERC20ForERC20ExactIn(depositor, poolKey, depositorAgentTokenBalance, address(agent));
 
         assertLt(agent.totalSupply(), totalAgentSupply);
         assertEq(agent.totalSupply(), totalAgentSupply - depositorAgentTokenBalance * burnBasisAmount / 1e4);
@@ -234,31 +238,31 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         // Post launch buyer, fees when selling
 
         address buyer = makeAddr("buyer");
-        vm.deal(buyer, 1 ether);
+        collateral.mint(buyer, 1e18);
 
         // Buy agent tokens so that buyer has some to sell
 
-        _swapETHForERC20ExactIn(buyer, poolKey, 1 ether);
+        _swapERC20ForERC20ExactIn(buyer, poolKey, 1e18, address(collateral));
 
         uint256 buyerAgentTokenBalance = agent.balanceOf(buyer);
         totalAgentSupply = agent.totalSupply();
 
-        uint256 daoCollateralBalance = dao.balance;
+        uint256 daoCollateralBalance = collateral.balanceOf(dao);
         uint256 daoAgentTokenBalance = agent.balanceOf(dao);
-        uint256 agentCollateralBalance = agentWallet.balance;
+        uint256 agentCollateralBalance = collateral.balanceOf(agentWallet);
         uint256 agentAgentTokenBalance = agent.balanceOf(agentWallet);
 
         // Sell agent tokens
 
-        _swapERC20ForETHExactIn(buyer, poolKey, buyerAgentTokenBalance);
+        _swapERC20ForERC20ExactIn(buyer, poolKey, buyerAgentTokenBalance, address(agent));
 
         assertLt(agent.totalSupply(), totalAgentSupply);
         assertEq(agent.totalSupply(), totalAgentSupply - buyerAgentTokenBalance * burnBasisAmount / 1e4);
 
         // There should be no fees
-        assertEq(dao.balance, daoCollateralBalance);
+        assertEq(collateral.balanceOf(dao), daoCollateralBalance);
         assertEq(agent.balanceOf(dao), daoAgentTokenBalance);
-        assertEq(agentWallet.balance, agentCollateralBalance);
+        assertEq(collateral.balanceOf(agentWallet), agentCollateralBalance);
         assertEq(agent.balanceOf(agentWallet), agentAgentTokenBalance);
     }
 
@@ -269,22 +273,22 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         uint256 totalAgentSupply = agent.totalSupply();
 
         address buyer = makeAddr("buyer");
-        vm.deal(buyer, 1 ether);
+        collateral.mint(buyer, 1000e18);
 
-        uint256 daoCollateralBalance = dao.balance;
+        uint256 daoCollateralBalance = collateral.balanceOf(dao);
         uint256 daoAgentTokenBalance = agent.balanceOf(dao);
-        uint256 agentCollateralBalance = agentWallet.balance;
+        uint256 agentCollateralBalance = collateral.balanceOf(agentWallet);
         uint256 agentAgentTokenBalance = agent.balanceOf(agentWallet);
 
-        _swapETHForERC20ExactOut(buyer, poolKey, agentTokenAmountToBuy);
+        _swapERC20ForERC20ExactOut(buyer, poolKey, agentTokenAmountToBuy, address(collateral));
 
         assertLt(agent.totalSupply(), totalAgentSupply);
         assertEq(agent.totalSupply(), totalAgentSupply - agentTokenAmountToBuy * burnBasisAmount / 1e4);
 
         // There should be no fees
-        assertEq(dao.balance, daoCollateralBalance);
+        assertEq(collateral.balanceOf(dao), daoCollateralBalance);
         assertEq(agent.balanceOf(dao), daoAgentTokenBalance);
-        assertEq(agentWallet.balance, agentCollateralBalance);
+        assertEq(collateral.balanceOf(agentWallet), agentCollateralBalance);
         assertEq(agent.balanceOf(agentWallet), agentAgentTokenBalance);
     }
 
@@ -299,7 +303,7 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
        
         // Inital burn for exact in
 
-        _swapERC20ForETHExactIn(depositor, poolKey, depositorAgentTokenBalance / 10);
+        _swapERC20ForERC20ExactIn(depositor, poolKey, depositorAgentTokenBalance / 10, address(agent));
 
         assertLt(agent.totalSupply(), agentSupply1);
         assertEq(agent.totalSupply(), agentSupply1 - depositorAgentTokenBalance / 10 * burnBasisAmount / 1e4);
@@ -307,39 +311,39 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         uint256 agentSupply2 = agent.totalSupply();
 
         address buyer = makeAddr("buyer");
-        vm.deal(buyer, 1 ether);
+        collateral.mint(buyer, 1e18);
 
         // Inital burn for exact out
 
-        _swapETHForERC20ExactOut(buyer, poolKey, 10e18);
+        _swapERC20ForERC20ExactOut(buyer, poolKey, 10e18, address(collateral));
 
         assertLt(agent.totalSupply(), agentSupply2);
         assertEq(agent.totalSupply(), agentSupply2 - 10e18 * burnBasisAmount / 1e4);
 
         UniswapFeeInfo memory fees = UniswapFeeInfo({
-            collateral: address(0),
+            collateral: address(collateral),
             burnBasisAmount: 200,
             recipients: new address[](0),
             basisAmounts: new uint256[](0)
         });
 
         vm.prank(owner);
-        hook.setFeesForPair(address(0), address(agent), fees);
+        hook.setFeesForPair(address(collateral), address(agent), fees);
 
         uint256 agentSupply3 = agent.totalSupply();
        
         // Changed burn exact in 
 
-        _swapERC20ForETHExactIn(depositor, poolKey, depositorAgentTokenBalance / 10);
+        _swapERC20ForERC20ExactIn(depositor, poolKey, 100e18, address(agent));
 
         assertLt(agent.totalSupply(), agentSupply3);
-        assertEq(agent.totalSupply(), agentSupply3 - depositorAgentTokenBalance / 10 * 200 / 1e4); 
+        assertEq(agent.totalSupply(), agentSupply3 - 100e18 * 200 / 1e4); 
 
         uint256 agentSupply4 = agent.totalSupply();
 
         // Changed burn exact out
 
-        _swapETHForERC20ExactOut(buyer, poolKey, 20e18);
+        _swapERC20ForERC20ExactOut(buyer, poolKey, 20e18, address(collateral));
 
         assertLt(agent.totalSupply(), agentSupply4);
         assertEq(agent.totalSupply(), agentSupply4 - 20e18 * 200 / 1e4);
@@ -365,86 +369,86 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
             basisAmounts[1] = 200;
 
             fees = UniswapFeeInfo({
-                collateral: address(0),
+                collateral: address(collateral),
                 burnBasisAmount: 100,
                 recipients: recipients,
                 basisAmounts: basisAmounts
             });
 
             vm.prank(owner);
-            hook.setFeesForPair(address(0), address(agent), fees);
+            hook.setFeesForPair(address(collateral), address(agent), fees);
         }
 
         // Test exact in
         {
-            uint256 daoCollateralBalance = dao.balance;
+            uint256 daoCollateralBalance = collateral.balanceOf(dao);
             uint256 daoAgentTokenBalance = agent.balanceOf(dao);
             
-            uint256 agentCollateralBalance = agentWallet.balance;
+            uint256 agentCollateralBalance = collateral.balanceOf(agentWallet);
             uint256 agentAgentTokenBalance = agent.balanceOf(agentWallet);
 
-            uint256 recipient1CollateralBalance = recipient1.balance;
-            uint256 recipient2CollateralBalance = recipient2.balance;
+            uint256 recipient1CollateralBalance = collateral.balanceOf(recipient1);
+            uint256 recipient2CollateralBalance = collateral.balanceOf(recipient2);
 
             uint256 recipient1AgentTokenBalance = agent.balanceOf(recipient1);
             uint256 recipient2AgentTokenBalance = agent.balanceOf(recipient2);
             
             {
                 address buyer = makeAddr("buyer");
-                vm.deal(buyer, 1000 ether);
+                collateral.mint(buyer, 1000 ether);
 
-                _swapETHForERC20ExactIn(buyer, poolKey, 2 ether);
+                _swapERC20ForERC20ExactIn(buyer, poolKey, 2e18, address(collateral));
             }
 
-            assertEq(dao.balance, daoCollateralBalance);
+            assertEq(collateral.balanceOf(dao), daoCollateralBalance);
             assertEq(agent.balanceOf(dao), daoAgentTokenBalance);
 
-            assertEq(agentWallet.balance, agentCollateralBalance);
+            assertEq(collateral.balanceOf(agentWallet), agentCollateralBalance);
             assertEq(agent.balanceOf(agentWallet), agentAgentTokenBalance);
 
-            assertGt(recipient1.balance, recipient1CollateralBalance);
-            assertEq(recipient1.balance, recipient1CollateralBalance + 2 ether * 100 / 1e4);
+            assertGt(collateral.balanceOf(recipient1), recipient1CollateralBalance);
+            assertEq(collateral.balanceOf(recipient1), recipient1CollateralBalance + 2e18 * 100 / 1e4);
             assertEq(agent.balanceOf(recipient1), recipient1AgentTokenBalance);
 
-            assertGt(recipient2.balance, recipient2CollateralBalance);
-            assertEq(recipient2.balance, recipient2CollateralBalance + 2 ether * 200 / 1e4);
+            assertGt(collateral.balanceOf(recipient2), recipient2CollateralBalance);
+            assertEq(collateral.balanceOf(recipient2), recipient2CollateralBalance + 2e18 * 200 / 1e4);
             assertEq(agent.balanceOf(recipient2), recipient2AgentTokenBalance);
         }
 
         // Test exact out
 
         {
-            uint256 daoCollateralBalance = dao.balance;
+            uint256 daoCollateralBalance = collateral.balanceOf(dao);
             uint256 daoAgentTokenBalance = agent.balanceOf(dao);
             
-            uint256 agentCollateralBalance = agentWallet.balance;
+            uint256 agentCollateralBalance = collateral.balanceOf(agentWallet);
             uint256 agentAgentTokenBalance = agent.balanceOf(agentWallet);
 
-            uint256 recipient1CollateralBalance = recipient1.balance;
-            uint256 recipient2CollateralBalance = recipient2.balance;
+            uint256 recipient1CollateralBalance = collateral.balanceOf(recipient1);
+            uint256 recipient2CollateralBalance = collateral.balanceOf(recipient2);
 
             uint256 recipient1AgentTokenBalance = agent.balanceOf(recipient1);
             uint256 recipient2AgentTokenBalance = agent.balanceOf(recipient2);
             
             {
                 address buyer = makeAddr("buyer");
-                vm.deal(buyer, 1000 ether);
+                collateral.mint(buyer, 1000 ether);
 
-                _swapERC20ForETHExactOut(buyer, poolKey, 1 ether);
+                _swapERC20ForERC20ExactOut(buyer, poolKey, 1e18, address(agent));
             }
 
-            assertEq(dao.balance, daoCollateralBalance);
+            assertEq(collateral.balanceOf(dao), daoCollateralBalance);
             assertEq(agent.balanceOf(dao), daoAgentTokenBalance);
 
-            assertEq(agentWallet.balance, agentCollateralBalance);
+            assertEq(collateral.balanceOf(agentWallet), agentCollateralBalance);
             assertEq(agent.balanceOf(agentWallet), agentAgentTokenBalance);
 
-            assertGt(recipient1.balance, recipient1CollateralBalance);
-            assertEq(recipient1.balance, recipient1CollateralBalance + 1 ether * 100 / 1e4);
+            assertGt(collateral.balanceOf(recipient1), recipient1CollateralBalance);
+            assertEq(collateral.balanceOf(recipient1), recipient1CollateralBalance + 1e18 * 100 / 1e4);
             assertEq(agent.balanceOf(recipient1), recipient1AgentTokenBalance);
 
-            assertGt(recipient2.balance, recipient2CollateralBalance);
-            assertEq(recipient2.balance, recipient2CollateralBalance + 1 ether * 200 / 1e4);
+            assertGt(collateral.balanceOf(recipient2), recipient2CollateralBalance);
+            assertEq(collateral.balanceOf(recipient2), recipient2CollateralBalance + 1e18 * 200 / 1e4);
             assertEq(agent.balanceOf(recipient2), recipient2AgentTokenBalance);
         }
     }
@@ -454,18 +458,26 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         address user2 = makeAddr("user2");
         address user3 = makeAddr("user3");
 
-        vm.deal(user1, 10 ether);
-        vm.deal(user2, 10 ether);
-        vm.deal(user3, 10 ether);
+        collateral.mint(user1, 10e18);
+        collateral.mint(user2, 10e18);
+        collateral.mint(user3, 10e18);
 
-        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(collateral));
 
         vm.prank(user1);
-        pool.depositETH{value: 2 ether}();
+        collateral.approve(address(pool), 2e18);
+        vm.prank(user1);
+        pool.depositERC20(2e18);
+
         vm.prank(user2);
-        pool.depositETH{value: 3 ether}();
+        collateral.approve(address(pool), 3e18);
+        vm.prank(user2);
+        pool.depositERC20(3e18);
+
         vm.prank(user3);
-        pool.depositETH{value: 4 ether}();
+        collateral.approve(address(pool), 4e18);
+        vm.prank(user3);
+        pool.depositERC20(4e18);
 
         vm.warp(block.timestamp + timeWindow);
 
@@ -482,11 +494,11 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         pool.claim(user3);
 
         address buyer = makeAddr("buyer");
-        vm.deal(buyer, 1 ether);
+        collateral.mint(buyer, 1e18);
 
         assertEq(agent.balanceOf(buyer), 0);
        
-        _swapETHForERC20ExactIn(buyer, poolKey, 0.1 ether);
+        _swapERC20ForERC20ExactIn(buyer, poolKey, 0.1 * 1e18, address(collateral));
 
         assertGt(agent.balanceOf(user1), 0);
         assertGt(agent.balanceOf(user2), 0);
@@ -494,7 +506,7 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
 
         // We calculate reverse prices because of integer division
 
-        uint256 expectedReversePrice1 = agent.balanceOf(user1) / 2 ether;
+        uint256 expectedReversePrice1 = agent.balanceOf(user1) / 2e18;
         uint256 expectedReversePrice2 = agent.balanceOf(user2) / 3 ether;
         uint256 expectedReversePrice3 = agent.balanceOf(user3) / 4 ether;
 
@@ -503,7 +515,7 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
 
         assertGt(agent.balanceOf(buyer), 0);
 
-        uint256 buyerReversePrice = agent.balanceOf(buyer) / 0.1 ether;
+        uint256 buyerReversePrice = agent.balanceOf(buyer) / (0.1 * 1e18);
 
         assertLt(buyerReversePrice, expectedReversePrice1); // Buyer reverse price will be lower, which means the actual buyer price is higher
         assertLt((expectedReversePrice1 - buyerReversePrice) * 100 / expectedReversePrice1, 10); // Assert there's less than 10% difference
@@ -513,27 +525,27 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         (, PoolKey memory poolKey, IERC20 agent) = _launch(makeAddr("depositor"));
 
         address provider = makeAddr("provider");
-        vm.deal(provider, 100 ether);
+        collateral.mint(provider, 100e18);
 
-        _swapETHForERC20ExactIn(provider, poolKey, 10 ether);
+        _swapERC20ForERC20ExactIn(provider, poolKey, 10e18, address(collateral));
 
-        uint256 startingCollateralBalance = provider.balance;
+        uint256 startingCollateralBalance = collateral.balanceOf(provider);
         uint256 startingAgentBalance = agent.balanceOf(provider);
 
-        uint256 amount0Max = 10 ether;
-        uint256 amount1Max = 10 * 1e18;
+        uint256 amount0Max = 10e18;
+        uint256 amount1Max = 10e18;
 
         ReservesAndLiquidity memory ral;
 
-        (ral.reserveA, ral.reserveB, ral.totalLiquidity) = _getLiquidity(poolKey, address(0), 200);
+        (ral.reserveA, ral.reserveB, ral.totalLiquidity) = _getLiquidity(poolKey, address(collateral), 200);
         _mintLiquidityPosition(provider, poolKey, amount0Max, amount1Max, 200);
 
-        assertLt(provider.balance, startingCollateralBalance);
-        assertGe(provider.balance, startingCollateralBalance - amount0Max);
+        assertLt(collateral.balanceOf(provider), startingCollateralBalance);
+        assertGe(collateral.balanceOf(provider), startingCollateralBalance - amount0Max);
         assertLt(agent.balanceOf(provider), startingAgentBalance);
         assertGe(agent.balanceOf(provider), startingAgentBalance - amount1Max);
 
-        (uint256 newReserveA, uint256 newReserveB, uint newTotalLiquidity) = _getLiquidity(poolKey, address(0), 200);
+        (uint256 newReserveA, uint256 newReserveB, uint newTotalLiquidity) = _getLiquidity(poolKey, address(collateral), 200);
 
         assertGt(newReserveA, ral.reserveA);
         assertGt(newReserveB, ral.reserveB);
@@ -544,20 +556,20 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         (, PoolKey memory poolKey,) = _launch(makeAddr("depositor"));
 
         address provider = makeAddr("provider");
-        vm.deal(provider, 100 ether);
+        collateral.mint(provider, 100e18);
 
-        _swapETHForERC20ExactIn(provider, poolKey, 10 ether);
+        _swapERC20ForERC20ExactIn(provider, poolKey, 10e18, address(collateral));
 
-        uint256 amount0Max = 10 ether;
+        uint256 amount0Max = 10e18;
         uint256 amount1Max = 100e18;
 
         ReservesAndLiquidity memory ral1;
-        (ral1.reserveA, ral1.reserveB, ral1.totalLiquidity) = _getLiquidity(poolKey, address(0), 200);
+        (ral1.reserveA, ral1.reserveB, ral1.totalLiquidity) = _getLiquidity(poolKey, address(collateral), 200);
 
         uint256 tokenId = _mintLiquidityPosition(provider, poolKey, amount0Max, amount1Max, 200);
 
         ReservesAndLiquidity memory ral2;
-        (ral2.reserveA, ral2.reserveB, ral2.totalLiquidity) = _getLiquidity(poolKey, address(0), 200);
+        (ral2.reserveA, ral2.reserveB, ral2.totalLiquidity) = _getLiquidity(poolKey, address(collateral), 200);
 
         PositionDetails memory info = _getPositionDetails(tokenId);
 
@@ -570,7 +582,7 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         IPositionManager(uniswapPositionManager).modifyLiquidities(abi.encode(actions, params), block.timestamp);
 
         ReservesAndLiquidity memory ral3;
-        (ral3.reserveA, ral3.reserveB, ral3.totalLiquidity) = _getLiquidity(poolKey, address(0), 200);
+        (ral3.reserveA, ral3.reserveB, ral3.totalLiquidity) = _getLiquidity(poolKey, address(collateral), 200);
 
         assertGt(ral2.reserveA, ral1.reserveA);
         assertGt(ral2.reserveB, ral1.reserveB);
@@ -585,25 +597,25 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         (, PoolKey memory poolKey,) = _launch(makeAddr("depositor"));
 
         address provider = makeAddr("provider");
-        vm.deal(provider, 100 ether);
+        collateral.mint(provider, 100e18);
 
-        _swapETHForERC20ExactIn(provider, poolKey, 10 ether);
+        _swapERC20ForERC20ExactIn(provider, poolKey, 10e18, address(collateral));
 
-        uint256 amount0Max = 10 ether;
+        uint256 amount0Max = 10e18;
         uint256 amount1Max = 10e18;
 
         uint256 tokenId = _mintLiquidityPosition(provider, poolKey, amount0Max, amount1Max, 200);
 
-        uint256 providerBalance = provider.balance;
+        uint256 providerBalance = collateral.balanceOf(provider);
 
         address buyer = makeAddr("buyer");
-        vm.deal(buyer, 1 ether);
+        collateral.mint(buyer, 1e18);
 
-        _swapETHForERC20ExactIn(buyer, poolKey, 1 ether);
+        _swapERC20ForERC20ExactIn(buyer, poolKey, 1e18, address(collateral));
 
         _collectLiquidityProviderFees(provider, tokenId, poolKey);
 
-        assertEq(provider.balance, providerBalance);
+        assertEq(collateral.balanceOf(provider), providerBalance);
     }
 
     function test_liquidityProviderReceivesFeesWhenLPFeeSet() public { 
@@ -612,34 +624,36 @@ contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, U
         (, PoolKey memory poolKey,) = _launch(makeAddr("depositor"));
 
         address provider = makeAddr("provider");
-        vm.deal(provider, 100 ether);
+        collateral.mint(provider, 100e18);
 
-        _swapETHForERC20ExactIn(provider, poolKey, 10 ether);
+        _swapERC20ForERC20ExactIn(provider, poolKey, 10e18, address(collateral));
 
-        uint256 amount0Max = 10 ether;
+        uint256 amount0Max = 10e18;
         uint256 amount1Max = 10e18;
         
         uint256 tokenId = _mintLiquidityPosition(provider, poolKey, amount0Max, amount1Max, 200);
 
-        uint256 providerBalance = provider.balance;
+        uint256 providerBalance = collateral.balanceOf(provider);
 
         address buyer = makeAddr("buyer");
-        vm.deal(buyer, 10 ether);
+        collateral.mint(buyer, 10e18);
 
-        _swapETHForERC20ExactIn(buyer, poolKey, 10 ether);
+        _swapERC20ForERC20ExactIn(buyer, poolKey, 10e18, address(collateral));
 
         _collectLiquidityProviderFees(provider, tokenId, poolKey);
 
-        assertGt(provider.balance, providerBalance);
+        assertGt(collateral.balanceOf(provider), providerBalance);
     }
 
     function _launch(address depositor) internal returns(AgentLaunchPool, PoolKey memory, IERC20) {
-        vm.deal(depositor, 10 ether);
+        collateral.mint(depositor, 10e18);
 
-        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
+        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(collateral));
 
-        vm.prank(depositor);
-        pool.depositETH{value: 10 ether}();
+        vm.startPrank(depositor);
+        collateral.approve(address(pool), 10e18);
+        pool.depositERC20(10e18);
+        vm.stopPrank();
 
         vm.warp(block.timestamp + timeWindow);
 
