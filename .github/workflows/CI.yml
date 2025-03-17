@@ -57,4 +57,4 @@ jobs:
           BASE_POSITION_MANAGER: "${{ vars.BASE_POSITION_MANAGER }}"
           BASE_UNIVERSAL_ROUTER: "${{ vars.BASE_UNIVERSAL_ROUTER }}"
           CREATE2_DEPLOYER: "${{ vars.CREATE2_DEPLOYER }}"
-          PERMIT2: "${{ vars.PERMIT2 }"
+          PERMIT2: "${{ vars.PERMIT2 }}"
