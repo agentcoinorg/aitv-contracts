@@ -52,4 +52,9 @@ jobs:
         id: test
         env:
           BASE_RPC_URL: "${{ secrets.BASE_RPC_URL }}"
-          BASE_UNISWAP_ROUTER: "${{ secrets.BASE_UNISWAP_ROUTER }}"
+          BASE_UNISWAP_ROUTER: "${{ vars.BASE_UNISWAP_ROUTER }}"
+          BASE_POOL_MANAGER: "${{ vars.BASE_POOL_MANAGER }}"
+          BASE_POSITION_MANAGER: "${{ vars.BASE_POSITION_MANAGER }}"
+          BASE_UNIVERSAL_ROUTER: "${{ vars.BASE_UNIVERSAL_ROUTER }}"
+          CREATE2_DEPLOYER: "${{ vars.CREATE2_DEPLOYER }}"
+          PERMIT2: "${{ vars.PERMIT2 }"
