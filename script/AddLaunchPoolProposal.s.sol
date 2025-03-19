@@ -56,8 +56,8 @@ contract AddLaunchPoolProposalScript is Script {
 
                 launchPoolInfo = LaunchPoolInfo({
                     collateral: collateral,
-                    timeWindow: 30 seconds,
-                    minAmountForLaunch: 1,
+                    timeWindow: 10 minutes,
+                    minAmountForLaunch: 0.000001 ether,
                     maxAmountForLaunch: 1000 ether,
                     collateralUniswapPoolBasisAmount: 6_500,
                     collateralRecipients: collateralRecipients,
