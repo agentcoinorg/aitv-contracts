@@ -40,11 +40,47 @@ contract AgentFactoryTest is AgentFactoryTestUtils {
         factory.addProposal(_buildDefaultLaunchPoolProposal(address(1)));
     }
 
-    function test_canDeployProposal() public { 
-        factory.addProposal(_buildDefaultLaunchPoolProposal(address(0)));
+    function test_canDeployProposal() public {
+        LaunchPoolProposal memory proposal = _buildDefaultLaunchPoolProposal(address(0)); 
+        factory.addProposal(proposal);
 
         vm.prank(owner);
         factory.deployProposal(0);
+
+        LaunchPoolProposal memory savedProposal = factory.getProposal(0);
+
+        assertEq(savedProposal.launchPoolImplementation, proposal.launchPoolImplementation);
+
+        assertEq(savedProposal.tokenInfo.owner, proposal.tokenInfo.owner);
+        assertEq(savedProposal.tokenInfo.name, proposal.tokenInfo.name);
+        assertEq(savedProposal.tokenInfo.symbol, proposal.tokenInfo.symbol);
+        assertEq(savedProposal.tokenInfo.totalSupply, proposal.tokenInfo.totalSupply);
+        assertEq(savedProposal.tokenInfo.tokenImplementation, proposal.tokenInfo.tokenImplementation);
+        assertEq(savedProposal.tokenInfo.stakingImplementation, proposal.tokenInfo.stakingImplementation);
+
+        assertEq(savedProposal.launchPoolInfo.collateral, proposal.launchPoolInfo.collateral);
+        assertEq(savedProposal.launchPoolInfo.timeWindow, proposal.launchPoolInfo.timeWindow);
+        assertEq(savedProposal.launchPoolInfo.minAmountForLaunch, proposal.launchPoolInfo.minAmountForLaunch);
+        assertEq(savedProposal.launchPoolInfo.maxAmountForLaunch, proposal.launchPoolInfo.maxAmountForLaunch);
+        assertEq(savedProposal.launchPoolInfo.collateralUniswapPoolBasisAmount, proposal.launchPoolInfo.collateralUniswapPoolBasisAmount);
+        assertEq(savedProposal.launchPoolInfo.collateralRecipients, proposal.launchPoolInfo.collateralRecipients);
+        assertEq(savedProposal.launchPoolInfo.collateralBasisAmounts, proposal.launchPoolInfo.collateralBasisAmounts);
+
+        assertEq(savedProposal.uniswapPoolInfo.permit2, proposal.uniswapPoolInfo.permit2);
+        assertEq(savedProposal.uniswapPoolInfo.hook, proposal.uniswapPoolInfo.hook);
+        assertEq(savedProposal.uniswapPoolInfo.lpRecipient, proposal.uniswapPoolInfo.lpRecipient);
+        assertEq(savedProposal.uniswapPoolInfo.lpFee, proposal.uniswapPoolInfo.lpFee);
+        assertEq(savedProposal.uniswapPoolInfo.tickSpacing, proposal.uniswapPoolInfo.tickSpacing);
+
+        assertEq(savedProposal.distributionInfo.recipients, proposal.distributionInfo.recipients);
+        assertEq(savedProposal.distributionInfo.basisAmounts, proposal.distributionInfo.basisAmounts);
+        assertEq(savedProposal.distributionInfo.launchPoolBasisAmount, proposal.distributionInfo.launchPoolBasisAmount);
+        assertEq(savedProposal.distributionInfo.uniswapPoolBasisAmount, proposal.distributionInfo.uniswapPoolBasisAmount);
+
+        assertEq(savedProposal.uniswapFeeInfo.collateral, proposal.uniswapFeeInfo.collateral);
+        assertEq(savedProposal.uniswapFeeInfo.burnBasisAmount, proposal.uniswapFeeInfo.burnBasisAmount);
+        assertEq(savedProposal.uniswapFeeInfo.recipients, proposal.uniswapFeeInfo.recipients);
+        assertEq(savedProposal.uniswapFeeInfo.basisAmounts, proposal.uniswapFeeInfo.basisAmounts);
     }
 
     function test_canDeployLaunchPool() public { 

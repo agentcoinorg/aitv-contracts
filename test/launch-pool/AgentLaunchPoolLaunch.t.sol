@@ -13,6 +13,8 @@ import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
 import {AgentToken} from "../../src/AgentToken.sol";
 import {AgentUniswapHook} from "../../src/AgentUniswapHook.sol";
 import {AgentStaking} from "../../src/AgentStaking.sol";
+import {LaunchPoolProposal} from "../../src/types/LaunchPoolProposal.sol";
+import {UniswapFeeInfo} from "../../src/types/UniswapFeeInfo.sol";
 
 contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
     MockedERC20 collateral;
@@ -29,7 +31,22 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
         address user = makeAddr("user");
         vm.deal(user, 10000 ether);
 
-        (AgentLaunchPool pool, PoolKey memory poolKey) = _deployDefaultLaunchPool(address(0));
+        LaunchPoolProposal memory proposal = _buildDefaultLaunchPoolProposal(address(0));
+
+        uint256 proposalId = factory.addProposal(proposal);
+
+        vm.prank(owner);
+        AgentLaunchPool pool = AgentLaunchPool(payable(factory.deployProposal(proposalId)));
+
+        PoolKey memory poolKey = _getPoolKey(pool, proposal);
+
+        assertEq(pool.owner(), owner);
+
+        assertEq(pool.hasLaunched(), false);
+        assertEq(pool.launchPoolCreatedOn(), block.timestamp);
+        assertEq(pool.totalDeposited(), 0);
+        assertEq(pool.agentToken(), address(0));
+        assertEq(pool.agentStaking(), address(0));
 
         address expectedAgentTokenAddress = pool.computeAgentTokenAddress();
 
@@ -56,6 +73,48 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
 
         assertEq(AgentToken(pool.agentToken()).name(), "Agent Token");
         assertEq(AgentToken(pool.agentToken()).symbol(), "AGENT");
+
+        assertEq(pool.getTokenInfo().owner, proposal.tokenInfo.owner);
+        assertEq(pool.getTokenInfo().name, proposal.tokenInfo.name);
+        assertEq(pool.getTokenInfo().symbol, proposal.tokenInfo.symbol);
+        assertEq(pool.getTokenInfo().totalSupply, proposal.tokenInfo.totalSupply);
+        assertEq(pool.getTokenInfo().tokenImplementation, proposal.tokenInfo.tokenImplementation);
+        assertEq(pool.getTokenInfo().stakingImplementation, proposal.tokenInfo.stakingImplementation);
+
+        assertEq(pool.getLaunchPoolInfo().collateral, proposal.launchPoolInfo.collateral);
+        assertEq(pool.getLaunchPoolInfo().timeWindow, proposal.launchPoolInfo.timeWindow);
+        assertEq(pool.getLaunchPoolInfo().minAmountForLaunch, proposal.launchPoolInfo.minAmountForLaunch);
+        assertEq(pool.getLaunchPoolInfo().maxAmountForLaunch, proposal.launchPoolInfo.maxAmountForLaunch);
+        assertEq(pool.getLaunchPoolInfo().collateralUniswapPoolBasisAmount, proposal.launchPoolInfo.collateralUniswapPoolBasisAmount);
+        assertEq(pool.getLaunchPoolInfo().collateralRecipients, proposal.launchPoolInfo.collateralRecipients);
+        assertEq(pool.getLaunchPoolInfo().collateralBasisAmounts, proposal.launchPoolInfo.collateralBasisAmounts);
+
+        assertEq(pool.getUniswapPoolInfo().permit2, proposal.uniswapPoolInfo.permit2);
+        assertEq(pool.getUniswapPoolInfo().hook, proposal.uniswapPoolInfo.hook);
+        assertEq(pool.getUniswapPoolInfo().lpRecipient, proposal.uniswapPoolInfo.lpRecipient);
+        assertEq(pool.getUniswapPoolInfo().lpFee, proposal.uniswapPoolInfo.lpFee);
+        assertEq(pool.getUniswapPoolInfo().tickSpacing, proposal.uniswapPoolInfo.tickSpacing);
+
+        assertEq(pool.getDistributionInfo().recipients, proposal.distributionInfo.recipients);
+        assertEq(pool.getDistributionInfo().basisAmounts, proposal.distributionInfo.basisAmounts);
+        assertEq(pool.getDistributionInfo().launchPoolBasisAmount, proposal.distributionInfo.launchPoolBasisAmount);
+        assertEq(pool.getDistributionInfo().uniswapPoolBasisAmount, proposal.distributionInfo.uniswapPoolBasisAmount);
+
+        UniswapFeeInfo memory feeInfo1 = hook.getFeesForPair(address(0), pool.agentToken());
+
+        assertEq(feeInfo1.collateral, proposal.uniswapFeeInfo.collateral);
+        assertEq(feeInfo1.burnBasisAmount, proposal.uniswapFeeInfo.burnBasisAmount);
+        assertEq(feeInfo1.recipients, proposal.uniswapFeeInfo.recipients);
+        assertEq(feeInfo1.basisAmounts, proposal.uniswapFeeInfo.basisAmounts);
+
+        // Assert that ordering works
+        UniswapFeeInfo memory feeInfo2 = hook.getFeesForPair(pool.agentToken(), address(0));
+
+        assertEq(feeInfo2.collateral, proposal.uniswapFeeInfo.collateral);
+        assertEq(feeInfo2.burnBasisAmount, proposal.uniswapFeeInfo.burnBasisAmount);
+        assertEq(feeInfo2.recipients, proposal.uniswapFeeInfo.recipients);
+        assertEq(feeInfo2.basisAmounts, proposal.uniswapFeeInfo.basisAmounts);
+
 
         (uint256 reserveA, uint256 reserveB, uint totalLiquidity) = _getLiquidity(poolKey, address(0), tickSpacing);
         uint256 expectedUniswapCollateral = collateralUniswapPoolBasisAmount * maxAmountForLaunch / 1e4;
