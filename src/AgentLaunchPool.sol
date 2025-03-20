@@ -122,12 +122,12 @@ contract AgentLaunchPool is UniswapPoolDeployer, DistributionAndPriceChecker, Ow
             revert AlreadyLaunched();
         }
 
-        if (!_hasTimeWindowPassed()) {
-            revert TimeWindowNotPassed();
-        }
-
         if (totalDeposited < launchPoolInfo.minAmountForLaunch) {
             revert MinAmountNotReached();
+        }
+
+        if (totalDeposited < launchPoolInfo.maxAmountForLaunch && !_hasTimeWindowPassed()) {
+            revert TimeWindowNotPassed();
         }
 
         hasLaunched = true;

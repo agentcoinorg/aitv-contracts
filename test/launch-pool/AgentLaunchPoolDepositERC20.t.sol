@@ -167,6 +167,20 @@ contract AgentLaunchPoolDepositERC20Test is AgentFactoryTestUtils {
         assertEq(collateral.balanceOf(user), 5e18);
     }
 
+    function test_canLaunchWhenMaxAmountIsReachedBeforeTimeWindow() public {
+        address user = makeAddr("user");
+        collateral.mint(user, 15e18);
+
+        (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(collateral));
+
+        vm.startPrank(user);
+        collateral.approve(address(pool), 11e18);
+        pool.depositERC20(11e18);
+        vm.stopPrank();
+    
+        pool.launch();
+    }
+
     function forbidsDepositAfterLaunch() public { 
         address user = makeAddr("user");
         collateral.mint(user, 10e18);
