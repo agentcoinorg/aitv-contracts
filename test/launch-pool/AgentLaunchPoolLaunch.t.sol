@@ -322,7 +322,7 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
         (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(0));
 
         vm.startPrank(user);
-        pool.depositETH{value: 2 ether}();
+        pool.depositETH{value: 2 ether}(); // More than min amount, less than max amount
 
         vm.warp(block.timestamp + timeWindow / 2);
 
