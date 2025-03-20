@@ -311,6 +311,30 @@ contract AgentLaunchPool is UniswapPoolDeployer, DistributionAndPriceChecker, Ow
         depositETHFor(msg.sender);
     }
 
+    /// @notice Getter for token info
+    /// @return The token info
+    function getTokenInfo() external virtual view returns (TokenInfo memory) {
+        return tokenInfo;
+    }
+
+    /// @notice Getter for launch pool info
+    /// @return The launch pool info
+    function getLaunchPoolInfo() external virtual view returns (LaunchPoolInfo memory) {
+        return launchPoolInfo;
+    }
+
+    /// @notice Getter for uniswap pool info
+    /// @return The uniswap pool info
+    function getUniswapPoolInfo() external virtual view returns (UniswapPoolInfo memory) {
+        return uniswapPoolInfo;
+    }
+
+    /// @notice Getter for distribution info
+    /// @return The distribution info
+    function getDistributionInfo() external virtual view returns (AgentDistributionInfo memory) {
+        return distributionInfo;
+    }
+
     /// @notice Claim tokens for the recipient that will be transferred from the contract to the recipient
     /// @param _recipient The address of the recipient
     /// @return If the claim was successful or not

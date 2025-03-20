@@ -7,6 +7,7 @@ import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
 
 import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
 import {MockedERC20} from "../helpers/MockedERC20.sol";
+import {LaunchPoolInfo} from "../../src/types/LaunchPoolInfo.sol";
 
 
 contract AgentLaunchPoolDepositERC20Test is AgentFactoryTestUtils {
@@ -20,7 +21,15 @@ contract AgentLaunchPoolDepositERC20Test is AgentFactoryTestUtils {
         collateral = new MockedERC20();
     }
 
-     function test_canDepositERC20() public { 
+    function test_collateralIsCorrect() public {
+        (AgentLaunchPool pool,) = _deployDefaultLaunchPool(address(collateral));
+
+        LaunchPoolInfo memory launchPoolInfo = pool.getLaunchPoolInfo();
+
+        assertEq(launchPoolInfo.collateral, address(collateral));
+    }
+
+    function test_canDepositERC20() public { 
         address user = makeAddr("user");
         collateral.mint(user, 1e18);
 

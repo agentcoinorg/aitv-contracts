@@ -105,6 +105,17 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
         emit SetAuthorizedLaunchPool(launchPool, authorized);
     }
 
+    /// @notice Getter for fees
+    /// @dev The token addresses do not need to be sorted, the function will sort them
+    /// @param _tokenA The address of the first token
+    /// @param _tokenB The address of the second token
+    /// @return The fees for the pair
+    function getFeesForPair(address _tokenA, address _tokenB) external view returns (UniswapFeeInfo memory) {
+        address currency0 = _tokenA < _tokenB ? _tokenA : _tokenB;
+        address currency1 = _tokenA < _tokenB ? _tokenB : _tokenA;
+
+        return _getFeesForPair(currency0, currency1);
+    }
 
     /// @notice Returns the permissions for the hook
     /// @dev This is used to validate the hook address during deployment

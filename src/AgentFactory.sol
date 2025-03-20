@@ -102,6 +102,13 @@ contract AgentFactory is DistributionAndPriceChecker, OwnableUpgradeable, UUPSUp
         return pool;
     }
 
+    /// @notice Getter for a proposal
+    /// @param _proposalId The id of the proposal
+    /// @return The proposal
+    function getProposal(uint256 _proposalId) external view returns(LaunchPoolProposal memory) {
+        return proposals[_proposalId];
+    }
+
     /// @notice Deploys a launch pool
     /// @param _launchPoolImplementation The address of the launch pool implementation
     /// @param _tokenInfo The token information
