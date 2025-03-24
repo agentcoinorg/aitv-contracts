@@ -6,6 +6,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {BeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
 import {MockedERC20} from "../helpers/MockedERC20.sol";
@@ -603,7 +604,9 @@ contract AgentLaunchPoolLaunchDisabled is AgentLaunchPool {
 }
 
 contract AgentLaunchPoolCollateralMigrator is AgentLaunchPool {
+    using Address for address payable;
+
     function migrateCollateral(address recipient) external {
-        payable(recipient).call{value: address(this).balance}("");
+        payable(recipient).sendValue(address(this).balance);
     }
 }

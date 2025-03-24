@@ -252,6 +252,31 @@ contract AgentUniswapHookTest is  AgentFactoryTestUtils, UniswapPoolDeployer {
         poolInfo.poolManager.initialize(pool, poolInfo.startingPrice);
     }
 
+    function test_canTransferOwnership() public {
+        assertEq(hook.owner(), owner);
+
+        vm.prank(owner);
+        hook.transferOwnership(makeAddr("newOwner"));
+
+        assertEq(hook.owner(), owner);
+       
+        vm.prank(makeAddr("newOwner"));
+        hook.acceptOwnership();
+
+        assertEq(hook.owner(), makeAddr("newOwner"));
+    }
+
+    function test_forbidsNonOwnerFromTransferringOwnership() public {
+        vm.expectPartialRevert(OwnableUpgradeable.OwnableUnauthorizedAccount.selector);
+        hook.transferOwnership(makeAddr("newOwner"));
+
+        vm.prank(makeAddr("anyone"));
+        vm.expectPartialRevert(OwnableUpgradeable.OwnableUnauthorizedAccount.selector);
+        hook.transferOwnership(makeAddr("newOwner"));
+
+        assertEq(hook.owner(), owner);
+    }
+
     function _launch(address depositor) internal returns(AgentLaunchPool, PoolKey memory, IERC20) {
         vm.deal(depositor, 10 ether);
 

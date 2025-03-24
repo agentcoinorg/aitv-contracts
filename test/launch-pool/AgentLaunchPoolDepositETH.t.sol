@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
 import {MockedERC20} from "../helpers/MockedERC20.sol";
@@ -9,6 +10,7 @@ import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
 
 
 contract AgentLaunchPoolDepositETHTest is AgentFactoryTestUtils {
+    using Address for address payable;
     
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
@@ -90,10 +92,10 @@ contract AgentLaunchPoolDepositETHTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        address(pool).call{value: 1 ether}("");
+        payable(address(pool)).sendValue(1 ether);
         assertEq(pool.deposits(user), 1 ether);
 
-        address(pool).call{value: 2 ether}("");
+        payable(address(pool)).sendValue(2 ether);
         assertEq(pool.deposits(user), 3 ether);
     }
 

@@ -2,15 +2,17 @@
 pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
-
 import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
-
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+    
 import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
 import {MockedERC20} from "../helpers/MockedERC20.sol";
 import {LaunchPoolInfo} from "../../src/types/LaunchPoolInfo.sol";
 
 
 contract AgentLaunchPoolDepositERC20Test is AgentFactoryTestUtils {
+    using Address for address payable;
+   
     MockedERC20 collateral;
 
     function setUp() public {
@@ -110,7 +112,7 @@ contract AgentLaunchPoolDepositERC20Test is AgentFactoryTestUtils {
         vm.startPrank(user);
 
         vm.expectRevert(AgentLaunchPool.InvalidCollateral.selector);
-        address(pool).call{value: 1 ether}("");
+        payable(address(pool)).sendValue(1 ether);
 
         assertEq(pool.deposits(user), 0);
     }

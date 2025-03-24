@@ -378,6 +378,31 @@ contract AgentFactoryTest is AgentFactoryTestUtils {
         pool.launch();
     }
 
+    function test_canTransferOwnership() public {
+        assertEq(factory.owner(), owner);
+
+        vm.prank(owner);
+        factory.transferOwnership(makeAddr("newOwner"));
+
+        assertEq(factory.owner(), owner);
+       
+        vm.prank(makeAddr("newOwner"));
+        factory.acceptOwnership();
+
+        assertEq(factory.owner(), makeAddr("newOwner"));
+    }
+
+    function test_forbidsNonOwnerFromTransferringOwnership() public {
+        vm.expectPartialRevert(OwnableUpgradeable.OwnableUnauthorizedAccount.selector);
+        factory.transferOwnership(makeAddr("newOwner"));
+
+        vm.prank(makeAddr("anyone"));
+        vm.expectPartialRevert(OwnableUpgradeable.OwnableUnauthorizedAccount.selector);
+        factory.transferOwnership(makeAddr("newOwner"));
+
+        assertEq(factory.owner(), owner);
+    }
+
     function _getProposalWithLowerPriceAfterLaunch() internal returns (LaunchPoolProposal memory) {
         address collateral = address(0);
 

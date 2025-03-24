@@ -7,7 +7,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -19,10 +19,11 @@ import {IBurnable} from "./interfaces/IBurnable.sol";
 
 /// @title Agent Uniswap Hook
 /// @notice A hook contract for Uniswap V4 that takes fees and burns agent tokens on swaps
-contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgradeable, IFeeSetter, IAuthorizeLaunchPool {
+contract AgentUniswapHook is Ownable2StepUpgradeable, UUPSUpgradeable, BaseHookUpgradeable, IFeeSetter, IAuthorizeLaunchPool {
     error OnlyLaunchPool();
     error OnlyOwnerOrController();
     error InvalidCollateral();
+    error ZeroAddressNotAllowed();
 
     event SetController(address controller);
     event SetFeesForPair(address token1, address token2, UniswapFeeInfo uniswapFeeInfo);
@@ -47,7 +48,13 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
         address _controller,
         address _uniswapPoolManager
     ) external initializer {
-        __Ownable_init(_owner);
+        // _controller not checked for zero address because we can set it later
+        if (_uniswapPoolManager == address(0)) {
+            revert ZeroAddressNotAllowed();
+        }
+
+        __Ownable_init(_owner); // Checks for zero address
+        __Ownable2Step_init();
         __UUPSUpgradeable_init();
 
         poolManager = IPoolManager(_uniswapPoolManager);
@@ -143,23 +150,26 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
     /// @notice Returns the fees for a pair of tokens
     /// @param currency0 The address of the first token
     /// @param currency1 The address of the second token
+    /// @return The fees for the pair
     function _getFeesForPair(address currency0, address currency1) internal view virtual returns (UniswapFeeInfo memory) {
         bytes32 key = keccak256(abi.encodePacked(currency0, currency1));
         return fees[key];
     }
 
     /// @notice Returns the pool manager
+    /// @return The pool manager
     function _getPoolManager() internal view virtual override returns (IPoolManager) {
         return poolManager;
     }
 
     /// @notice Access control to upgrade the contract
+    /// @param newImplementation The address of the new implementation
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
     /// @notice Before initialize hook
-    /// @param sender The sender of the transaction
     /// @dev Only authorized launch pools can use this hook
     /// This prevents the hook from being used by other Uniswap pools
+    /// @param sender The sender of the transaction
     function _beforeInitialize(address sender, PoolKey calldata, uint160) internal virtual override returns (bytes4) {
         if (!authorizedLaunchPools[sender]) {
             revert OnlyLaunchPool();
@@ -212,9 +222,10 @@ contract AgentUniswapHook is OwnableUpgradeable, UUPSUpgradeable, BaseHookUpgrad
     /// @param swapAmount The amount of the swap
     /// @param currency The currency of the fees
     /// @param pairFees The fees for the pair
+    /// @return totalFee The total fee taken
     function takeFees(uint256 swapAmount, Currency currency, UniswapFeeInfo memory pairFees) internal virtual returns (uint256 totalFee) {
         uint256 length = pairFees.recipients.length;
-        for (uint256 i = 0; i < length; i++) {
+        for (uint256 i = 0; i < length; ++i) {
             uint256 fee = swapAmount * pairFees.basisAmounts[i] / 1e4;
             totalFee += fee;
             poolManager.take(currency, pairFees.recipients[i], fee);
