@@ -27,7 +27,7 @@ import {UniswapTestUtils} from "./UniswapTestUtils.sol";
 abstract contract AgentFactoryTestUtils is AgentUniswapHookDeployer, UniswapTestUtils {
     using StateLibrary for IPoolManager;
     using TransientStateLibrary for IPoolManager;
-    
+
     address owner = makeAddr("owner");
     address agentWallet = makeAddr("agentWallet");
     address dao = makeAddr("dao");
