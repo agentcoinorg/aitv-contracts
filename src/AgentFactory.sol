@@ -105,7 +105,7 @@ contract AgentFactory is DistributionAndPriceChecker, Ownable2StepUpgradeable, U
     function deployProposal(uint256 proposalId) external virtual onlyOwner returns(address payable) {
         LaunchPoolProposal memory proposal = proposals[proposalId];
 
-        address payable pool = deploy(
+        address payable pool = _deploy(
             proposal.launchPoolImplementation,
             proposal.tokenInfo,
             proposal.launchPoolInfo,
@@ -138,12 +138,40 @@ contract AgentFactory is DistributionAndPriceChecker, Ownable2StepUpgradeable, U
     /// @return The address of the deployed launch pool
     function deploy(
         address _launchPoolImplementation,
+        TokenInfo calldata _tokenInfo,
+        LaunchPoolInfo calldata _launchPoolInfo,
+        UniswapPoolInfo calldata _uniswapPoolInfo,
+        AgentDistributionInfo calldata _distributionInfo,
+        UniswapFeeInfo calldata _uniswapFeeInfo
+    ) external virtual onlyOwner returns(address payable) {
+        return _deploy(
+            _launchPoolImplementation,
+            _tokenInfo,
+            _launchPoolInfo,
+            _uniswapPoolInfo,
+            _distributionInfo,
+            _uniswapFeeInfo
+        );
+    }
+
+    /// @notice Deploys a launch pool
+    /// @dev Only the owner can deploy a launch pool, and the distribution must be correct
+    /// It sets the fees and the launch pool as authorized on the uniswap hook
+    /// @param _launchPoolImplementation The address of the launch pool implementation
+    /// @param _tokenInfo The token information
+    /// @param _launchPoolInfo The launch pool information
+    /// @param _uniswapPoolInfo The uniswap pool information
+    /// @param _distributionInfo The distribution information
+    /// @param _uniswapFeeInfo The uniswap fee information
+    /// @return The address of the deployed launch pool
+    function _deploy(
+        address _launchPoolImplementation,
         TokenInfo memory _tokenInfo,
         LaunchPoolInfo memory _launchPoolInfo,
         UniswapPoolInfo memory _uniswapPoolInfo,
         AgentDistributionInfo memory _distributionInfo,
         UniswapFeeInfo memory _uniswapFeeInfo
-    ) public virtual onlyOwner returns(address payable) {
+    ) internal returns(address payable) {
         if (_launchPoolInfo.collateralRecipients.length != _launchPoolInfo.collateralBasisAmounts.length) {
             revert LengthMismatch();
         }
