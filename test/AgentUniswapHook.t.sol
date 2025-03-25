@@ -17,10 +17,9 @@ import {AgentFactory} from "../src/AgentFactory.sol";
 import {AgentUniswapHook} from "../src/AgentUniswapHook.sol";
 import {LaunchPoolProposal} from "../src/types/LaunchPoolProposal.sol";
 import {AgentFactoryTestUtils} from "./helpers/AgentFactoryTestUtils.sol";
-import {UniswapPoolDeployer} from "../src/UniswapPoolDeployer.sol";
 import {MockedERC20} from "./helpers/MockedERC20.sol";
 
-contract AgentUniswapHookTest is  AgentFactoryTestUtils, UniswapPoolDeployer {
+contract AgentUniswapHookTest is  AgentFactoryTestUtils {
     
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
@@ -225,31 +224,23 @@ contract AgentUniswapHookTest is  AgentFactoryTestUtils, UniswapPoolDeployer {
         uint160 sqrtPrice_1_1 = 79228162514264337593543950336;
         
         vm.startPrank(user);
-        PoolInfo memory poolInfo = PoolInfo({
-            poolManager: IPoolManager(uniswapPoolManager),
-            positionManager: IPositionManager(uniswapPositionManager),
-            collateral: address(0),
-            agentToken: address(fakeAgent),
-            collateralAmount: 10 ether,
-            agentTokenAmount: 10e18,
-            lpRecipient: user,
-            lpFee: 0,
-            tickSpacing: 200,
-            startingPrice: sqrtPrice_1_1,
-            hook: address(hook),
-            permit2: permit2
-        });
+     
+        address collateral = address(0);
+        address agentToken = address(fakeAgent);
+        uint24 lpFee = 0;
+        int24 tickSpacing = 200;
+        uint160 startingPrice = sqrtPrice_1_1;
 
         PoolKey memory pool = PoolKey({
-            currency0: Currency.wrap(poolInfo.collateral < poolInfo.agentToken ? poolInfo.collateral : poolInfo.agentToken),
-            currency1: Currency.wrap(poolInfo.collateral < poolInfo.agentToken ? poolInfo.agentToken : poolInfo.collateral),
-            fee: poolInfo.lpFee,
-            tickSpacing: poolInfo.tickSpacing,
-            hooks: IHooks(poolInfo.hook)
+            currency0: Currency.wrap(collateral < agentToken ? collateral : agentToken),
+            currency1: Currency.wrap(collateral < agentToken ? agentToken : collateral),
+            fee: lpFee,
+            tickSpacing: tickSpacing,
+            hooks: IHooks(address(hook))
         });
 
         vm.expectRevert(); // Can't specify exact error because PoolManager wraps it
-        poolInfo.poolManager.initialize(pool, poolInfo.startingPrice);
+        IPoolManager(uniswapPoolManager).initialize(pool, startingPrice);
     }
 
     function test_canTransferOwnership() public {

@@ -11,9 +11,8 @@ import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
 import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
 import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
 import {UniswapFeeInfo} from "../../src/types/UniswapFeeInfo.sol";
-import {UniswapPoolDeployer} from "../../src/UniswapPoolDeployer.sol";
 
-contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils, UniswapPoolDeployer {
+contract AgentLaunchPoolUniswapWithETHCollateralTest is AgentFactoryTestUtils {
     
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));

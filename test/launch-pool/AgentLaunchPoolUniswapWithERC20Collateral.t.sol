@@ -12,9 +12,8 @@ import {AgentFactoryTestUtils} from "../helpers/AgentFactoryTestUtils.sol";
 import {AgentLaunchPool} from "../../src/AgentLaunchPool.sol";
 import {UniswapFeeInfo} from "../../src/types/UniswapFeeInfo.sol";
 import {MockedERC20} from "../helpers/MockedERC20.sol";
-import {UniswapPoolDeployer} from "../../src/UniswapPoolDeployer.sol";
 
-contract AgentLaunchPoolUniswapWithERC20CollateralTest is AgentFactoryTestUtils, UniswapPoolDeployer {
+contract AgentLaunchPoolUniswapWithERC20CollateralTest is AgentFactoryTestUtils {
     MockedERC20 collateral;
     
     function setUp() public {
