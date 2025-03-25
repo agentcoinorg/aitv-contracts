@@ -19,7 +19,7 @@ import {TokenInfo} from "./types/TokenInfo.sol";
 import {LaunchPoolInfo} from "./types/LaunchPoolInfo.sol";
 import {UniswapPoolInfo} from "./types/UniswapPoolInfo.sol";
 import {AgentDistributionInfo} from "./types/AgentDistributionInfo.sol";
-import {UniswapPoolDeployer} from "./UniswapPoolDeployer.sol";
+import {UniswapPoolDeployer, UniswapPoolDeploymentInfo} from "./libraries/UniswapPoolDeployer.sol";
 import {DistributionAndPriceChecker} from "./DistributionAndPriceChecker.sol";
 
 /// @title AgentLaunchPool
@@ -34,7 +34,7 @@ import {DistributionAndPriceChecker} from "./DistributionAndPriceChecker.sol";
 /// - Distribute agent tokens to the specified recipients (this happens as part of Agent Token deployment) and the pool
 /// - Distribute collateral to the specified recipients
 /// If the launch fails, users can reclaim their deposits
-contract AgentLaunchPool is UniswapPoolDeployer, DistributionAndPriceChecker, Ownable2StepUpgradeable, UUPSUpgradeable, ReentrancyGuard, IAgentLaunchPool {
+contract AgentLaunchPool is DistributionAndPriceChecker, Ownable2StepUpgradeable, UUPSUpgradeable, ReentrancyGuard, IAgentLaunchPool {
     using SafeERC20 for IERC20;
     using Address for address payable;
 
@@ -173,7 +173,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, DistributionAndPriceChecker, Ow
         bytes memory tokenCtorArgs = _getAgentTokenCtorArgs(tokenInfo.owner);
         bytes memory proxyCtorArgs = abi.encode(tokenInfo.tokenImplementation, tokenCtorArgs);
 
-        return computeCreate2Address(address(this), bytes32(0), type(ERC1967Proxy).creationCode, proxyCtorArgs);
+        return _computeCreate2Address(address(this), bytes32(0), type(ERC1967Proxy).creationCode, proxyCtorArgs);
     }
 
     /// @notice Deposit ETH collateral to receive Agent Tokens after the launch
@@ -449,8 +449,8 @@ contract AgentLaunchPool is UniswapPoolDeployer, DistributionAndPriceChecker, Ow
             revert NotEnoughCollateralToDeploy();
         }
 
-        _createPoolAndAddLiquidity(
-            PoolInfo({
+        UniswapPoolDeployer.deployPoolAndAddLiquidity(
+            UniswapPoolDeploymentInfo({
                 poolManager: uniswapPoolManager,
                 positionManager: uniswapPositionManager,
                 collateral: _collateral,
@@ -558,7 +558,7 @@ contract AgentLaunchPool is UniswapPoolDeployer, DistributionAndPriceChecker, Ow
     /// @param bytecode The bytecode of the contract
     /// @param constructorArgs The constructor arguments
     /// @return The computed address
-    function computeCreate2Address(
+    function _computeCreate2Address(
         address deployer,
         bytes32 salt,
         bytes memory bytecode,

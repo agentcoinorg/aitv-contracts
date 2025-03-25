@@ -122,7 +122,7 @@ contract AgentFactory is DistributionAndPriceChecker, Ownable2StepUpgradeable, U
     /// @notice Getter for a proposal
     /// @param _proposalId The id of the proposal
     /// @return The proposal
-    function getProposal(uint256 _proposalId) external view returns(LaunchPoolProposal memory) {
+    function getProposal(uint256 _proposalId) external virtual view returns(LaunchPoolProposal memory) {
         return proposals[_proposalId];
     }
 
@@ -171,7 +171,7 @@ contract AgentFactory is DistributionAndPriceChecker, Ownable2StepUpgradeable, U
         UniswapPoolInfo memory _uniswapPoolInfo,
         AgentDistributionInfo memory _distributionInfo,
         UniswapFeeInfo memory _uniswapFeeInfo
-    ) internal returns(address payable) {
+    ) internal virtual returns(address payable) {
         if (_launchPoolInfo.collateralRecipients.length != _launchPoolInfo.collateralBasisAmounts.length) {
             revert LengthMismatch();
         }
