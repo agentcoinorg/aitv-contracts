@@ -146,8 +146,6 @@ contract AgentLaunchPool is DistributionAndPriceChecker, Ownable2StepUpgradeable
             revert TimeWindowNotPassed();
         }
 
-        hasLaunched = true;
-
         address contractOwner = tokenInfo.owner;
 
         // Deploy the agent token contract
@@ -155,9 +153,11 @@ contract AgentLaunchPool is DistributionAndPriceChecker, Ownable2StepUpgradeable
 
         _deployAgentStaking(contractOwner, agentTokenAddress);
 
-        _distributeCollateral();
-
         _setupInitialLiquidity(launchPoolInfo.collateral, agentTokenAddress);
+
+        hasLaunched = true;
+
+        _distributeCollateral();
 
         emit Launch(agentTokenAddress, agentStaking);
     }
