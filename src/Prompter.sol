@@ -16,7 +16,9 @@ import {IUniversalRouter} from "@uniswap/universal-router/src/interfaces/IUniver
 import {Commands} from "@uniswap/universal-router/src/libraries/Commands.sol";
 import {IV4Router} from "@uniswap/v4-periphery/src/interfaces/IV4Router.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
+import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {IBurnable} from "./interfaces/IBurnable.sol";
+import {UniSwapper} from "./libraries/UniSwapper.sol";
 
 enum ActionType {
     Burn,
@@ -26,53 +28,14 @@ enum ActionType {
     SendAndCallForBeneficiary
 }
 
-struct Action {
+struct RawAction {
     ActionType actionType;
-    uint256 dataIndex;
-}
-
-struct BurnData {
-    uint256 basisAmount;
-}
-
-struct SendData {
+    address token;
     address recipient;
-    uint256 basisAmount;
-}
-
-struct BuyData {
-    address tokenToBuy;
-    uint256 basisAmount;
-    uint256 distributionId;
-}
-
-struct SendAndCall {
-    address recipient;
-    uint256 basisAmount;
-    bytes4 signature;
+    uint16 basisPoints;
+    uint32 distributionId;
+    bytes4 selector;
     address recipientOnFailure;
-}
-
-struct SendAndCallForBeneficiary {
-    address recipient;
-    uint256 basisAmount;
-    bytes4 signature;
-    address recipientOnFailure;
-}
-
-struct Distribution {
-    PoolKey poolKey;
-    Action[] actions;
-    BurnData[] burns;
-    SendData[] sends;
-    BuyData[] buys;
-    SendAndCall[] sendAndCalls;
-    SendAndCallForBeneficiary[] sendAndCallForBeneficiary;
-}
-
-struct PromptPaymentInfo {
-    uint256 distributionId;
-    
 }
 
 /// @title Prompter
@@ -89,19 +52,65 @@ contract Prompter is Ownable2StepUpgradeable, UUPSUpgradeable {
     error DistributionNotFound();
     error ZeroAmountNotAllowed();
     error BurningETHNotAllowed();
+    error BasisPointsMustSumTo10000();
+    
+    event DistributionAdded(uint256 indexed distributionId);
 
-    IPoolManager public poolManager;
-    IPositionManager public positionManager;
-    address public universalRouter;
+    IPositionManager public uniswapPositionManager;
+    IUniversalRouter public uniswapUniversalRouter;
+    IPermit2 public permit2;
 
     mapping(bytes32 => uint256) internal promptDistributionIds;
-    mapping(uint256 => Distribution) internal distributions;
     mapping(address => PoolKey) internal poolKeys;
     uint256 internal lastDistributionId;
+    mapping(uint256 => bytes) internal distributions;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
+    }
+
+    /// @notice Initializes the contract
+    /// @param _owner The owner of the contract and the one who can upgrade it
+    /// @param _uniswapPositionManager The address of the position manager
+    /// @param _uniswapUniversalRouter The address of the universal router
+    function initialize(
+        address _owner,
+        IPositionManager _uniswapPositionManager,
+        IUniversalRouter _uniswapUniversalRouter,
+        IPermit2 _permit2
+    ) external initializer {
+        if (address(_uniswapPositionManager) == address(0) || address(_uniswapUniversalRouter) == address(0)) {
+            revert ZeroAddressNotAllowed();
+        }
+
+        __Ownable_init(_owner); // Checks for zero address
+        __Ownable2Step_init();
+        __UUPSUpgradeable_init();
+
+        uniswapPositionManager = _uniswapPositionManager;
+        uniswapUniversalRouter = _uniswapUniversalRouter;
+        permit2 = _permit2;
+    }
+
+    function addDistribution(RawAction[] calldata actions)
+        external
+        onlyOwner
+        returns (uint256 distributionId)
+    {
+        // 1) Sum up all basisPoints; must equal exactly 10 000 (100%)
+        uint256 totalBasis;
+        for (uint256 i = 0; i < actions.length; ++i) {
+            totalBasis += actions[i].basisPoints;
+        }
+        if (totalBasis != 10_000) revert BasisPointsMustSumTo10000();
+
+        // 2) Assign new ID and store the ABI‐encoded actions blob
+        distributionId = ++lastDistributionId;
+        distributions[distributionId] = abi.encode(actions);
+
+        // 3) Emit for off‐chain indexing
+        emit DistributionAdded(distributionId);
     }
 
     function setPoolKey(
@@ -115,77 +124,17 @@ contract Prompter is Ownable2StepUpgradeable, UUPSUpgradeable {
         poolKeys[token] = poolKey;
     }
 
-    function addDistribution(
-        Distribution calldata distribution
-    ) external virtual returns(uint256 distributionId) {
-        if (distribution.actions.length != distribution.burns.length + distribution.sends.length + distribution.buys.length + distribution.sendAndCalls.length + distribution.sendAndCallForBeneficiary.length) {
-            revert LengthMismatch();
-        }
-
-        distributionId = lastDistributionId + 1;
-        lastDistributionId++;
-        distributions[distributionId] = distribution;
-
-        return distributionId;
-    }
-
-    function updateDistribution(
-        uint256 distributionId,
-        Distribution calldata distribution
-    ) external virtual onlyOwner {
-        if (distributionId == 0) {
-            revert("Zero Id Not Allowed");
-        }
-
-        if (distribution.actions.length !=  distribution.burns.length + distribution.sends.length + distribution.buys.length + distribution.sendAndCalls.length + distribution.sendAndCallForBeneficiary.length) {
-            revert LengthMismatch();
-        }
-
-        distributions[distributionId] = distribution;
-    }
-
-
-    function setPromptPaymentInfo(bytes32 promptType, uint256 distributionId) external virtual onlyOwner returns(uint256) {
-        if (agentToken == address(0)) {
-            revert ZeroAddressNotAllowed();
-        }
-
-        if (distribution.actions.length != distribution.burns.length + distribution.sends.length + distribution.buys.length + distribution.sendAndCalls.length + distribution.sendAndCallForBeneficiary.length) {
-            revert LengthMismatch();
-        }
-
+    function setPromptDistribution(bytes32 promptType, uint256 distributionId) external virtual onlyOwner returns(uint256) {
         promptDistributionIds[promptType] = distributionId;
 
         return distributionId;
-    }
-
-    /// @notice Initializes the contract
-    /// @param _owner The owner of the contract and the one who can upgrade it
-    /// @param _uniswapPoolManager The address of the uniswap pool manager
-    /// @param _positionManager The address of the position manager
-    function initialize(
-        address _owner,
-        address _uniswapPoolManager,
-        address _positionManager,
-        address _universalRouter
-    ) external initializer {
-        if (_uniswapPoolManager == address(0) || _positionManager == address(0)) {
-            revert ZeroAddressNotAllowed();
-        }
-
-        __Ownable_init(_owner); // Checks for zero address
-        __Ownable2Step_init();
-        __UUPSUpgradeable_init();
-
-        poolManager = IPoolManager(_uniswapPoolManager);
-        positionManager = IPositionManager(_positionManager);
-        universalRouter = _universalRouter;
     }
 
     function promptWithETH(
         bytes32 _promptType, 
         address _beneficiary
     ) external payable {
+        bool isBeneficiaryCall = true;
         uint256 amount = msg.value;
 
         if (amount == 0) {
@@ -194,122 +143,128 @@ contract Prompter is Ownable2StepUpgradeable, UUPSUpgradeable {
 
         uint256 distributionId = promptDistributionIds[_promptType];
 
-        _execDistribution(distributionId, _amount, address(0), uint256(uint160(_beneficiary)));
+        _execDistribution(distributionId, _beneficiary, amount, address(0), isBeneficiaryCall);
     }
 
     function promptWithERC20(bytes32 _promptType, address _beneficiary, uint256 _amount, address _paymentToken) external {
+        bool isBeneficiaryCall = true;
+
         if (_amount == 0) {
             revert ZeroAmountNotAllowed();
         }
 
         IERC20(_paymentToken).safeTransferFrom(msg.sender, address(this), _amount);
 
-        uint256 distributionId = agentDistributionIds[_promptType];
+        uint256 distributionId = promptDistributionIds[_promptType];
 
-        _execDistribution(distributionId, _amount, _paymentToken, uint256(uint160(_beneficiary)));
+        _execDistribution(distributionId, _beneficiary, _amount, _paymentToken, isBeneficiaryCall);
     }
 
-    function _execDistribution(uint256 _distributionId, address _beneficiary, uint256 _amount, address _paymentToken) internal {
-        if (_distributionId == 0) {
-            revert DistributionNotFound();
-        }
+    function _execDistribution(
+        uint256 distributionId,
+        address beneficiary,
+        uint256 amount,
+        address paymentToken,
+        bool isBeneficiaryCall
+    ) internal {
+        if (distributionId == 0) revert DistributionNotFound();
 
-        Distribution memory distribution = distributions[_distributionId];
-        uint256 actionCount = distribution.actions.length;
-        
-        for (uint256 i = 0; i < actionCount; i++) {
-            Action memory action = distribution.actions[i];
+        bytes memory blob = distributions[distributionId];
+        RawAction[] memory actions = abi.decode(blob, (RawAction[]));
 
-            if (action.actionType == ActionType.Burn) {
-                BurnData memory data = distribution.burns[action.dataIndex];
-                uint256 amountToBurn = (_amount * data.basisAmount) / 10000;
+        for (uint256 i = 0; i < actions.length; ++i) {
+            RawAction memory a = actions[i];
+            uint256 split = (amount * a.basisPoints) / 10_000;
 
-                if (_paymentToken == address(0)) {
-                    revert BurningETHNotAllowed();
+            console.log("1");
+            if (a.actionType == ActionType.Burn) {
+                if (paymentToken== address(0)) revert BurningETHNotAllowed();
+                IBurnable(paymentToken).burn(split);
+            } else if (a.actionType == ActionType.Send) {
+                if (paymentToken == address(0)) {
+                    payable(a.recipient).sendValue(split);
                 } else {
-                    IBurnable(_paymentToken).burn(amountToBurn);
-                }
-            } else if (action.actionType == ActionType.Send) {
-                SendData memory data = distribution.sends[action.dataIndex];
-                uint256 amountToSend = (_amount * data.basisAmount) / 10000;
-
-                if (_paymentToken == address(0)) {
-                    payable(data.recipient).sendValue(amountToSend);
-                } else {
-                    IERC20(_paymentToken).safeTransfer(data.recipient, amountToSend);
+                    console.log("x");
+                    IERC20(paymentToken).safeTransfer(a.recipient, split);
                 }
 
-            } else if (action.actionType == ActionType.Buy) {
-                BuyData memory data = distribution.buys[action.dataIndex];
-                uint256 amountToSwap = (_amount * data.basisAmount) / 10000;
-                uint256 amountOut = _swapETHForERC20ExactIn(amountToSwap, distribution.poolKey);
+            } else if (a.actionType == ActionType.Buy) {
+                PoolKey memory pk = poolKeys[a.token];
+                uint256 out = UniSwapper.swapExactIn(
+                    address(this),
+                    pk,
+                    paymentToken,
+                    a.token,
+                    split,
+                    1,
+                    UniSwapper.Version.V3,
+                    uniswapUniversalRouter,
+                    permit2
+                );
 
-                _execDistribution(data.distributionId, amountOut, data.tokenToBuy, _beneficiary);
+                _execDistribution(a.distributionId, beneficiary, out, a.token, isBeneficiaryCall);
 
-            } else if (action.actionType == ActionType.SendAndCall) {
-                SendAndCall memory data = distribution.sendAndCalls[action.dataIndex];
-                uint256 amountToSend = (_amount * data.basisAmount) / 10000;
+            } else if (
+                a.actionType == ActionType.SendAndCall ||
+                a.actionType == ActionType.SendAndCallForBeneficiary
+            ) {
+                address target = a.recipient;
+                bool isEth = (paymentToken == address(0));
 
-                if (_paymentToken == address(0)) {
-                    bytes memory callData = abi.encodeWithSelector(data.signature);
-
-                   (bool success, ) = data.recipient.call{value: amountToSend}(callData);
-
-                    if (!success && data.recipientOnFailure != address(0)) {
-                        payable(data.recipientOnFailure).sendValue(amountToSend);
-                    } else if (!success) {
-                        revert SendAndCallFailed();
-                    }
-                } else {
-                    IERC20(_paymentToken).approve(data.recipient, amountToSend);
-                
-                    bytes memory callData = abi.encodeWithSelector(
-                        data.signature,
-                        amountToSend
+                bytes memory callData;
+                if (a.actionType == ActionType.SendAndCall) {
+                    callData = abi.encodeWithSelector(
+                        a.selector,
+                        isBeneficiaryCall ? beneficiary : msg.sender
                     );
-
-                   (bool success, ) = data.recipient.call(callData);
-
-                    if (!success && data.recipientOnFailure != address(0)) {
-                        IERC20(_paymentToken).safeTransfer(data.recipientOnFailure, amountToSend);
-                    } else if (!success) {
-                        revert SendAndCallFailed();
-                    }
-                }
-            } else if (action.actionType == ActionType.SendAndCallForBeneficiary) {
-                SendAndCallForBeneficiary memory data = distribution.sendAndCallForBeneficiary[action.dataIndex];
-                uint256 amountToSend = (_amount * data.basisAmount) / 10000;
-
-                if (_paymentToken == address(0)) {
-                    bytes memory callData = abi.encodeWithSelector(data.signature, _beneficiary);
-
-                   (bool success, ) = data.recipient.call{value: amountToSend}(callData);
-
-                    if (!success && data.recipientOnFailure != address(0)) {
-                        payable(data.recipientOnFailure).sendValue(amountToSend);
-                    } else if (!success) {
-                        revert SendAndCallForBeneficiaryFailed();
-                    }
                 } else {
-                    IERC20(_paymentToken).approve(data.recipient, amountToSend);
-                
-                    bytes memory callData = abi.encodeWithSelector(
-                        data.signature,
-                        _beneficiary,
-                        amountToSend
+                    callData = abi.encodeWithSelector(
+                        a.selector,
+                        beneficiary
                     );
+                }
 
-                   (bool success, ) = data.recipient.call(callData);
-
-                    if (!success && data.recipientOnFailure != address(0)) {
-                        IERC20(_paymentToken).safeTransfer(data.recipientOnFailure, amountToSend);
-                    } else if (!success) {
-                        revert SendAndCallForBeneficiaryFailed();
-                    }
+                if (isEth) {
+                    (bool ok, ) = target.call{value: split}(callData);
+                    if (!ok) _handleFailureETH(split, a, isBeneficiaryCall);
+                } else {
+                    IERC20(paymentToken).approve(target, split);
+                    (bool ok, ) = target.call(callData);
+                    if (!ok) _handleFailureERC20(paymentToken, split, a, isBeneficiaryCall);
                 }
             }
         }
     }
+
+    function _handleFailureETH(
+        uint256 split,
+        RawAction memory a,
+        bool isBeneficiaryCall
+    ) internal {
+        if (isBeneficiaryCall) {
+            // Send the ETH back to the beneficiary
+            payable(a.recipient).sendValue(split);
+        } else {
+            // Send the ETH back to the sender
+            payable(msg.sender).sendValue(split);
+        }
+    }
+
+    function _handleFailureERC20(
+        address paymentToken,
+        uint256 split,
+        RawAction memory a,
+        bool isBeneficiaryCall
+    ) internal {
+        if (isBeneficiaryCall) {
+            // Send the ERC20 tokens back to the beneficiary
+            IERC20(paymentToken).safeTransfer(a.recipient, split);
+        } else {
+            // Send the ERC20 tokens back to the sender
+            IERC20(paymentToken).safeTransfer(msg.sender, split);
+        }
+    }
+
 
     function _swapETHForERC20ExactIn(uint256 ethInAmount, PoolKey memory poolKey) internal returns(uint256 amountOut) {
         uint256 startERC20Amount = IERC20(Currency.unwrap(poolKey.currency1)).balanceOf(address(this));
@@ -346,11 +301,9 @@ contract Prompter is Ownable2StepUpgradeable, UUPSUpgradeable {
         // Combine actions and params into inputs
         inputs[0] = abi.encode(actions, params);
 
-        IUniversalRouter(universalRouter).execute{value: ethInAmount}(commands, inputs, block.timestamp);
+        uniswapUniversalRouter.execute{value: ethInAmount}(commands, inputs, block.timestamp);
 
         uint256 endERC20Amount = IERC20(Currency.unwrap(poolKey.currency1)).balanceOf(address(this));
-   
-        console.logUint(endERC20Amount);
 
         return endERC20Amount;
     }

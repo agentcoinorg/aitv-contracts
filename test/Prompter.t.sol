@@ -6,6 +6,12 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {IUniversalRouter} from "@uniswap/universal-router/src/interfaces/IUniversalRouter.sol";
+import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
+import {IHooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {AgentToken} from "../src/AgentToken.sol";
 import {AgentStaking} from "../src/AgentStaking.sol";
@@ -20,7 +26,13 @@ import {AgentUniswapHook} from "../src/AgentUniswapHook.sol";
 import {LaunchPoolProposal} from "../src/types/LaunchPoolProposal.sol";
 import {AgentFactoryTestUtils} from "./helpers/AgentFactoryTestUtils.sol";
 import {DistributionAndPriceChecker} from "../src/DistributionAndPriceChecker.sol";
-import {Prompter, Distribution, Action, BurnData, SendData, BuyData, SendAndCall, SendAndCallForBeneficiary, ActionType} from "../src/Prompter.sol";
+import {Prompter, RawAction, ActionType} from "../src/Prompter.sol";
+import {MockedERC20} from "./helpers/MockedERC20.sol";
+
+interface IWETH {
+    function deposit() external payable;
+    function withdraw(uint256) external;
+}
 
 contract PrompterTest is AgentFactoryTestUtils {
     Prompter prompter;
@@ -36,9 +48,9 @@ contract PrompterTest is AgentFactoryTestUtils {
             prompterImpl, 
             abi.encodeCall(Prompter.initialize, (
                 owner,
-                uniswapPoolManager,
-                uniswapPositionManager,
-                uniswapUniversalRouter
+                IPositionManager(uniswapPositionManager),
+                IUniversalRouter(uniswapUniversalRouter),
+                IPermit2(permit2)
             ))
         )));
     }
@@ -53,7 +65,28 @@ contract PrompterTest is AgentFactoryTestUtils {
         address agentToken = pool.agentToken();
         uint256 startTotalAgentSupply = IERC20(agentToken).totalSupply();
 
+        address usdc = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+        address weth = 0x4200000000000000000000000000000000000006;
+
+        vm.prank(user);
+        IWETH(weth).deposit{value: 0.01 ether}();
+
         vm.startPrank(owner);
+        prompter.setPoolKey(agentToken, poolKey);
+        prompter.setPoolKey(usdc, PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(usdc),
+            fee: 500,
+            tickSpacing: 0,
+            hooks: IHooks(address(0))
+        }));
+        // prompter.setPoolKey(weth, PoolKey({
+        //     currency0: Currency.wrap(address(0)),
+        //     currency1: Currency.wrap(weth),
+        //     fee: 0,
+        //     tickSpacing: 0,
+        //     hooks: IHooks(address(0))
+        // }));
 
         MockEscrow escrow = new MockEscrow();
         
@@ -65,47 +98,56 @@ contract PrompterTest is AgentFactoryTestUtils {
 
             buyDistId = prompter.addDistribution(
                 new DistributionBuilder()
-                    .send(4000, agentRecipient1)
+                    .send(5000, agentRecipient1)
                     .send(5000, agentRecipient2)
-                    .burn(1000)
-                    .build(poolKey)
+                    .build()
             );
         }
          
-        Distribution memory distribution = _dist()
-            .send(2000, makeAddr("recipient1"))
-            .send(3000, makeAddr("recipient2"))
-            .buy(1000, agentToken, buyDistId)
-            .sendAndCall(1000, address(escrow), bytes4(keccak256("depositETH()")),, address(0))
-            .sendAndCallForBeneficiary(1000, address(escrow), bytes4(keccak256("depositETHFor(address)")), address(0))
-            .build(poolKey);
+        RawAction[] memory actions = new DistributionBuilder()
+            // .send(5000, makeAddr("recipient1"))
+            // .send(2000, makeAddr("recipient2"))
+            // .buy(5000, agentToken, buyDistId)
+            .buy(10000, usdc, buyDistId)
+            // .sendAndCall(1000, address(escrow), bytes4(keccak256("depositETH()")), address(0))
+            // .sendAndCallForBeneficiary(1000, address(escrow), bytes4(keccak256("depositETHFor(address)")), address(0))
+            .build();
 
-        prompter.bind("gecko", distribution); // onlyOwner
+        // RawAction[] memory actions = new DistributionBuilder()
+        //     .send(10000, makeAddr("recipient1"))
+        //     .build();
+
+        uint256 distId = prompter.addDistribution(actions);
+
+        prompter.setPromptDistribution("gecko", distId); // onlyOwner
 
         vm.stopPrank();
 
         {
             uint256 currentGas = gasleft();
 
-            vm.prank(user);
-            prompter.promptWithETH{value: amount}("gecko", user);
+            // MockedERC20 erc20 = new MockedERC20();
+            // erc20.mint(user, amount);
+
+            vm.startPrank(user);
+            IERC20(weth).approve(address(prompter), amount);
+            prompter.promptWithERC20("gecko", user, amount, address(weth));
+            // prompter.promptWithETH{value: amount}("gecko", user);
             
+            vm.stopPrank();
+
             uint256 gasUsed = currentGas - gasleft();
             console.log("Gas used: %s", gasUsed);
         }
 
-        assertEq(makeAddr("recipient1").balance, (amount * 2000) / 10000);
-        assertEq(makeAddr("recipient2").balance, (amount * 3000) / 10000);
+        assertEq(makeAddr("recipient1").balance, (amount * 5000) / 10000);
+        assertEq(makeAddr("recipient2").balance, (amount * 2000) / 10000);
         assertEq(escrow.deposits(address(prompter)), (amount * 1000) / 10000);
         assertEq(escrow.deposits(user), (amount * 1000) / 10000);
         assertGt(IERC20(agentToken).balanceOf(makeAddr("agentRecipient1")), 0);
         assertGt(IERC20(agentToken).balanceOf(makeAddr("agentRecipient2")), 0);
         assertLt(IERC20(agentToken).balanceOf(makeAddr("agentRecipient1")), IERC20(agentToken).balanceOf(makeAddr("agentRecipient2")));
         assertLt(IERC20(agentToken).totalSupply(), startTotalAgentSupply);
-    }
-
-    function _dist() internal returns (DistributionBuilder) {
-        return new DistributionBuilder();
     }
 
     function _launch(address depositor) internal returns(AgentLaunchPool, PoolKey memory, IERC20) {
@@ -129,94 +171,98 @@ contract PrompterTest is AgentFactoryTestUtils {
 }
 
 contract DistributionBuilder {
-    Distribution internal distribution;
+    RawAction[] internal rawActions;
     
-    function build(PoolKey memory poolKey) external returns (Distribution memory) {
-        distribution.poolKey = poolKey;
-
-        return distribution;
+    function build() external returns (RawAction[] memory) {
+        return rawActions;
     }
 
     function burn(
-        uint256 basisAmount
+        uint256 basisPoints
     ) external returns (DistributionBuilder) {
-        distribution.actions.push(Action({
+        rawActions.push(RawAction({
             actionType: ActionType.Burn,
-            dataIndex: distribution.burns.length
+            basisPoints: uint16(basisPoints),
+            recipient: address(0),
+            token: address(0),
+            distributionId: 0,
+            selector: bytes4(0),
+            recipientOnFailure: address(0)
         }));
-        distribution.burns.push(BurnData({
-            basisAmount: basisAmount
-        }));
+
         return this;
     }
 
     function send(
-        uint256 basisAmount,
+        uint256 basisPoints,
         address recipient
     ) external returns (DistributionBuilder) {
-        distribution.actions.push(Action({
+        rawActions.push(RawAction({
             actionType: ActionType.Send,
-            dataIndex: distribution.sends.length
-        }));
-        distribution.sends.push(SendData({
+            basisPoints: uint16(basisPoints),
             recipient: recipient,
-            basisAmount: basisAmount
+            token: address(0),
+            distributionId: 0,
+            selector: bytes4(0),
+            recipientOnFailure: address(0)
         }));
+
         return this;
     }
 
     function buy(
-        uint256 _basisAmount,
+        uint256 _basisPoints,
         address _tokenToBuy,
         uint256 _distributionId
     ) external returns (DistributionBuilder) {
-        distribution.actions.push(Action({
+        rawActions.push(RawAction({
             actionType: ActionType.Buy,
-            dataIndex: distribution.buys.length
+            basisPoints: uint16(_basisPoints),
+            token: _tokenToBuy,
+            distributionId: uint32(_distributionId),
+            recipient: address(0),
+            selector: bytes4(0),
+            recipientOnFailure: address(0)
         }));
-        distribution.buys.push(BuyData({
-            tokenToBuy: _tokenToBuy,
-            basisAmount: _basisAmount,
-            distributionId: _distributionId
-        }));
+  
         return this;
     }
 
     function sendAndCall(
-        uint256 basisAmount,
+        uint256 _basisPoints,
         address recipient,
-        bytes4 signature,
+        bytes4 selector,
         address recipientOnFailure
     ) external returns (DistributionBuilder) {
-        distribution.actions.push(Action({
+        rawActions.push(RawAction({
             actionType: ActionType.SendAndCall,
-            dataIndex: distribution.sendAndCalls.length
-        }));
-        distribution.sendAndCalls.push(SendAndCall({
+            basisPoints: uint16(_basisPoints),
             recipient: recipient,
-            basisAmount: basisAmount,
-            signature: signature,
-            recipientOnFailure: recipientOnFailure
+            selector: selector,
+            recipientOnFailure: recipientOnFailure,
+            token: address(0),
+            distributionId: 0
         }));
+
         return this;
     }
 
     function sendAndCallForBeneficiary(
-        uint256 basisAmount,
+        uint256 basisPoints,
         address recipient,
-        bytes4 signature,
+        bytes4 selector,
         address recipientOnFailure
     ) external returns (DistributionBuilder) {
-        distribution.actions.push(Action({
+        rawActions.push(RawAction({
             actionType: ActionType.SendAndCallForBeneficiary,
-            dataIndex: distribution.sendAndCallForBeneficiary.length
-        }));
-        distribution.sendAndCallForBeneficiary.push(SendAndCallForBeneficiary({
+            basisPoints: uint16(basisPoints),
             recipient: recipient,
-            basisAmount: basisAmount,
-            signature: signature,
-            recipientOnFailure: recipientOnFailure
+            selector: selector,
+            recipientOnFailure: recipientOnFailure,
+            token: address(0),
+            distributionId: 0
         }));
+
         return this;
     }
 }
