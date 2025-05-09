@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {console} from "forge-std/console.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
@@ -9,10 +8,12 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniversalRouter} from "@uniswap/universal-router/src/interfaces/IUniversalRouter.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {IBurnable} from "./interfaces/IBurnable.sol";
 import {UniSwapper} from "./libraries/UniSwapper.sol";
 import {PoolConfig} from "./types/PoolConfig.sol";
+import {UniswapVersion} from "./types/UniswapVersion.sol";
 
 enum ActionType {
     Burn,
@@ -68,15 +69,26 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     error CallFailed(address);
     error InvalidActionDefinition();
     error InvalidActionType();
-    error OnlyWETHDeposits();
+    error TooManyCallArgs();
+    error InvalidCallArgType();
     
+    event PoolConfigSet(
+        address indexed currency0,
+        address indexed currency1,
+        address indexed hooks,
+        uint24 fee,
+        int24 tickSpacing,
+        UniswapVersion version
+    );
     event DistributionAdded(uint256 indexed distributionId, address indexed sender);
+    event DistributionIdSet(bytes32 indexed distributionName, uint256 indexed distributionId);
     event Distribution(
         bytes32 indexed distributionName,
         address indexed sender,
         address indexed beneficiary,
         uint256 amount,
         address paymentToken,
+        address recipientOnFailure,
         uint256 distributionId
     );
 
@@ -181,6 +193,15 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         bytes32 key = keccak256(abi.encodePacked(_config.poolKey.currency0, _config.poolKey.currency1));
 
         pools[key] = _config;
+
+        emit PoolConfigSet(
+            Currency.unwrap(_config.poolKey.currency0),
+            Currency.unwrap(_config.poolKey.currency1),
+            address(_config.poolKey.hooks),
+            _config.poolKey.fee,
+            _config.poolKey.tickSpacing,
+            _config.version
+        );
     }
 
     /// @notice Gets the pool config for a given pool
@@ -197,6 +218,8 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @param _distributionId The distribution id
     function setDistributionId(bytes32 _distributionName, uint256 _distributionId) external virtual onlyOwner {
         distributionNameToId[_distributionName] = _distributionId;
+    
+        emit DistributionIdSet(_distributionName, _distributionId);
     }
 
     /// @notice Gets the distribution id for a given name
@@ -249,16 +272,18 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         return trimmedSwaps;
     }
 
-    /// @notice Distribute an ERC20 token
-    /// @dev If the _recipientOnFailure is address(0), the transaction will revert
+    /// @notice Distribute Ether
+    /// @dev If the _recipientOnFailure is address(0), the transaction will revert if a SendAndCall fails
     /// @param _distributionName The distribution name
     /// @param _beneficiary The address of the beneficiary
     /// @param _recipientOnFailure The address of the recipient on failure
+    /// @param _minAmountsOut The minimum amounts out for the swaps
+    /// @param _deadline The deadline for the swaps
     function distributeETH(
         bytes32 _distributionName, 
         address _beneficiary,
         address _recipientOnFailure,
-        uint256[] calldata minAmountsOut,
+        uint256[] calldata _minAmountsOut,
         uint256 _deadline
     ) external virtual payable {
         uint256 amount = msg.value;
@@ -275,7 +300,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
             weth: weth
         });
 
-        _execDistribution(distributionId, args, amount, address(0), minAmountsOut, 0, _deadline);
+        _execDistribution(distributionId, args, amount, address(0), _minAmountsOut, 0, _deadline);
 
         emit Distribution(
             _distributionName,
@@ -283,24 +308,27 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
             _beneficiary,
             amount,
             address(0),
+            _recipientOnFailure,
             distributionId
         );
     }
 
     /// @notice Distribute an ERC20 token
-    /// @dev If the _recipientOnFailure is address(0), the transaction will revert
+    /// @dev If the _recipientOnFailure is address(0), the transaction will revert if a SendAndCall fails
     /// @param _distributionName The distribution name
     /// @param _beneficiary The address of the beneficiary
     /// @param _amount The amount of tokens to be sent
     /// @param _paymentToken The address of the payment token
     /// @param _recipientOnFailure The address of the recipient on failure
+    /// @param _minAmountsOut The minimum amounts out for the swaps
+    /// @param _deadline The deadline for the swaps
     function distributeERC20(
         bytes32 _distributionName, 
         address _beneficiary, 
         uint256 _amount, 
         address _paymentToken,
         address _recipientOnFailure,
-        uint256[] calldata minAmountsOut,
+        uint256[] calldata _minAmountsOut,
         uint256 _deadline
     ) external virtual {
         if (_amount == 0) {
@@ -317,7 +345,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
             weth: weth
         });
 
-        _execDistribution(distributionId, args, _amount, _paymentToken, minAmountsOut, 0, _deadline);
+        _execDistribution(distributionId, args, _amount, _paymentToken, _minAmountsOut, 0, _deadline);
 
         emit Distribution(
             _distributionName,
@@ -325,19 +353,21 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
             _beneficiary,
             _amount,
             _paymentToken,
+            _recipientOnFailure,
             distributionId
         );
     }
 
-    /// @notice Fallback function to accept ETH deposits
+    /// @notice Fallback function to accept ETH deposits (e.g. from swaps of WETH conversions)
     receive() external virtual payable {
     }
 
     /// @notice Executes a distribution
-    /// @dev If the args.recipientOnFailure is address(0), the transaction will revert
+    /// @dev If the args.recipientOnFailure is address(0), the transaction will revert if a SendAndCall fails
     /// @param _distributionId The id of the distribution
     /// @param _args The action arguments
     /// @param _amount The amount of tokens to be sent
+    /// @param _paymentToken The address of the payment token
     /// @param _minAmountsOut The minimum amounts out for the swaps
     /// @param _minAmountsOutIndex The index of the minimum amounts out
     /// @param _deadline The deadline for the swaps
@@ -351,9 +381,15 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 _minAmountsOutIndex,
         uint256 _deadline
     ) internal virtual returns (uint256) {
-        if (_distributionId == 0) revert DistributionNotFound(_distributionId);
+        if (_distributionId == 0) {
+            revert DistributionNotFound(_distributionId);
+        }
 
         bytes memory blob = distributions[_distributionId];
+        if (blob.length == 0) {
+            revert DistributionNotFound(_distributionId);
+        }
+
         Action[] memory actions = abi.decode(blob, (Action[]));
 
         for (uint256 i = 0; i < actions.length; ++i) {
@@ -372,10 +408,11 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     }
 
     /// @notice Executes an action
-    /// @dev If the _args.recipientOnFailure is address(0), the transaction will revert if a sendAndCall fails
+    /// @dev If the _args.recipientOnFailure is address(0), the transaction will revert if a SendAndCall fails
     /// @param _action The action to be executed
     /// @param _args The action arguments
     /// @param _amount The amount of tokens to be sent
+    /// @param _paymentToken The address of the payment token
     /// @param _minAmountsOut The minimum amounts out for the swaps
     /// @param _minAmountsOutIndex The index of the minimum amounts out
     /// @param _deadline The deadline for the swaps
@@ -390,7 +427,9 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 _deadline
     ) internal virtual returns (uint256) {
         if (_action.actionType == ActionType.Burn) {
-            if (_paymentToken== address(0)) revert BurningETHNotAllowed();
+            if (_paymentToken== address(0)) {
+                revert BurningETHNotAllowed();
+            }
             IBurnable(_paymentToken).burn(_amount);
         } else if (_action.actionType == ActionType.Send) {
             _send(
@@ -410,10 +449,6 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
                 out = _amount;
             } else {
                 PoolConfig memory poolConfig = pools[_getSwapPairKey(_paymentToken, _action.token)];
-                
-                console.log("Token in %s, Token out %s, out %s", _paymentToken, _action.token, _minAmountsOutIndex < _minAmountsOut.length
-                        ? uint128(_minAmountsOut[_minAmountsOutIndex])
-                        : 0);
 
                 out = UniSwapper.swapExactIn(
                     address(this),
@@ -428,7 +463,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
                     uniswapUniversalRouter,
                     permit2
                 );
-                _minAmountsOutIndex++;
+                ++_minAmountsOutIndex;
             }
 
             if (_action.distributionId != 0) {
@@ -458,7 +493,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
             if (isEth) {
                 (bool ok, ) = target.call{value: _amount}(callData);
                 if (!ok) {
-                     if (_args.recipientOnFailure != address(0)) {
+                    if (_args.recipientOnFailure != address(0)) {
                         payable(_args.recipientOnFailure).sendValue(_amount);
                     } else {
                         revert CallFailed(target);
@@ -470,7 +505,6 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
                 IERC20(_paymentToken).approve(target, 0); // Reset approval in case some of it was not spent or the call failed
 
                 if (!ok) {
-                    IERC20(_paymentToken).approve(target, 0);
                     if (_args.recipientOnFailure != address(0)) {
                         IERC20(_paymentToken).safeTransfer(_args.recipientOnFailure, _amount);
                     } else {
@@ -484,37 +518,41 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     }
 
     function _encodeFunctionCall(
-        bytes4 selector,
-        bytes12 callArgsPacked,
-        address sender,
+        bytes4 _selector,
+        bytes12 _callArgsPacked,
+        address _sender,
         address _beneficiary,
         uint256 _amount
     ) internal virtual pure returns (bytes memory) {
-       CallArgType[] memory callArgs = _decodeCallArgsWithCount(callArgsPacked);
+       CallArgType[] memory callArgs = _decodeCallArgsWithCount(_callArgsPacked);
 
         bytes memory argsData; 
 
-        for (uint256 j = 0; j < callArgs.length; ++j) {
-            if (callArgs[j] == CallArgType.Beneficiary) {
+        for (uint256 i = 0; i < callArgs.length; ++i) {
+            if (callArgs[i] == CallArgType.Beneficiary) {
                 argsData = bytes.concat(argsData, abi.encode(_beneficiary));
-            } else if (callArgs[j] == CallArgType.Sender) {
-                argsData = bytes.concat(argsData, abi.encode(sender));
-            } else if (callArgs[j] == CallArgType.Amount) {
+            } else if (callArgs[i] == CallArgType.Sender) {
+                argsData = bytes.concat(argsData, abi.encode(_sender));
+            } else if (callArgs[i] == CallArgType.Amount) {
                 argsData = bytes.concat(argsData, abi.encode(_amount));
             }
         }
 
-        return bytes.concat(abi.encodeWithSelector(selector), argsData);
+        return bytes.concat(abi.encodeWithSelector(_selector), argsData);
     }
 
     function _decodeCallArgsWithCount(bytes12 packed) internal virtual pure returns (CallArgType[] memory args) {
         uint8 count = uint8(packed[0]); // First byte is count
-        require(count <= 11, "Too many call args");
+        if (count > 11) {
+            revert TooManyCallArgs();
+        }
 
         args = new CallArgType[](count);
         for (uint8 i = 0; i < count; ++i) {
             uint8 val = uint8(packed[i + 1]);
-            require(val <= uint8(type(CallArgType).max), "Invalid CallArgType");
+            if (val > uint8(type(CallArgType).max)) {
+                revert InvalidCallArgType();
+            }
             args[i] = CallArgType(val);
         }
     }
@@ -626,7 +664,9 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @return swapIndex The new index of the current swap
     function _buildSwapsForDistribution(uint256 _distributionId, address _paymentToken, Swap[] memory _swaps, uint256 _swapIndex, address _weth) internal virtual view returns (uint256){
         bytes memory blob = distributions[_distributionId];
-        if (blob.length == 0) revert DistributionNotFound(_distributionId);
+        if (blob.length == 0) {
+            revert DistributionNotFound(_distributionId);
+        }
 
         Action[] memory actions = abi.decode(blob, (Action[]));
 
@@ -652,60 +692,69 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     }
 
     /// @notice Validates the burn action
-    /// @param action The action to be validated
-    function _validateBurnAction(Action memory action) internal virtual pure {
-        if (action.token != address(0)) {
+    /// @param _action The action to be validated
+    function _validateBurnAction(Action memory _action) internal virtual pure {
+        if (_action.token != address(0)) {
             revert InvalidActionDefinition();
         }
-        if (action.distributionId != 0) {
+        if (_action.distributionId != 0) {
             revert InvalidActionDefinition();
         }
-        if (action.selector != bytes4(0)) {
+        if (_action.selector != bytes4(0)) {
             revert InvalidActionDefinition();
         }
-        if (action.recipient != address(0)) {
+        if (_action.recipient != address(0)) {
+            revert InvalidActionDefinition();
+        }
+        if (_action.callArgsPacked != bytes12(0)) {
             revert InvalidActionDefinition();
         }
     }
 
     /// @notice Validates the send action
-    /// @param action The action to be validated
-    function _validateSendAction(Action memory action) internal virtual pure {
-        if (action.token != address(0)) {
+    /// @param _action The action to be validated
+    function _validateSendAction(Action memory _action) internal virtual pure {
+        if (_action.token != address(0)) {
             revert InvalidActionDefinition();
         }
-        if (action.distributionId != 0) {
+        if (_action.distributionId != 0) {
             revert InvalidActionDefinition();
         }
-        if (action.selector != bytes4(0)) {
+        if (_action.selector != bytes4(0)) {
+            revert InvalidActionDefinition();
+        }
+        if (_action.callArgsPacked != bytes12(0)) {
             revert InvalidActionDefinition();
         }
     }
 
     /// @notice Validates the buy action
-    /// @param action The action to be validated
-    function _validateBuyAction(Action memory action) internal virtual pure {
-        if (action.distributionId != 0 && action.recipient != address(0)) {
+    /// @param _action The action to be validated
+    function _validateBuyAction(Action memory _action) internal virtual pure {
+        if (_action.distributionId != 0 && _action.recipient != address(0)) {
             revert InvalidActionDefinition();
         }
-        if (action.selector != bytes4(0)) {
+        if (_action.selector != bytes4(0)) {
+            revert InvalidActionDefinition();
+        }
+        if (_action.callArgsPacked != bytes12(0)) {
             revert InvalidActionDefinition();
         }
     }
 
     /// @notice Validates the send and call action
-    /// @param action The action to be validated
-    function _validateSendAndCallAction(Action memory action) internal virtual pure {
-        if (action.token != address(0)) {
+    /// @param _action The action to be validated
+    function _validateSendAndCallAction(Action memory _action) internal virtual pure {
+        if (_action.token != address(0)) {
             revert InvalidActionDefinition();
         }
-        if (action.distributionId != 0) {
+        if (_action.distributionId != 0) {
             revert InvalidActionDefinition();
         }
-        if (action.selector == bytes4(0)) {
+        if (_action.selector == bytes4(0)) {
             revert InvalidActionDefinition();
         }
-        if (action.recipient == address(0)) {
+        if (_action.recipient == address(0)) {
             revert InvalidActionDefinition();
         }
     }
