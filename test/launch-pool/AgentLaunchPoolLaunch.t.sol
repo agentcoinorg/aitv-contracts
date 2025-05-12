@@ -69,7 +69,7 @@ contract AgentLaunchPoolLaunchTest is AgentFactoryTestUtils {
         assertEq(IERC20(pool.agentToken()).balanceOf(address(pool)) / 1e15, launchPoolAmount / 1e15); // Rounding because price calculations (unsiwap) are not exact
         assertGt(IERC20(pool.agentToken()).balanceOf(address(pool)), launchPoolAmount); // There's at least launchPoolAmount
         assertEq(pool.agentToken(), expectedAgentTokenAddress);
-        assertEq(dao.balance, daoCollateralBasisAmount * maxAmountForLaunch / 1e4);
+        assertEq(dao.balance / 100, daoCollateralBasisAmount * maxAmountForLaunch / 1e4 / 100); // Divided by 100 is rounding because of dust being sent after uniswap sweep
         assertEq(agentWallet.balance, agentWalletCollateralBasisAmount * maxAmountForLaunch / 1e4);
 
         assertEq(AgentToken(pool.agentToken()).name(), "Agent Token");

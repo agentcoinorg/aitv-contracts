@@ -2,7 +2,7 @@
 
 # Ensure at least three arguments are provided
 if [[ $# -lt 3 ]]; then
-    echo "Usage: ./deploy.sh [pk|account] [network] [script] [--test (optional)]"
+    echo "Usage: ./deploy.sh [prompt|account|pk] [network] [script] [--test (optional)]"
     exit 1
 fi
 
@@ -72,10 +72,15 @@ else
 fi
 
 # Append authentication method
-if [[ "$AUTH_METHOD" == "pk" ]]; then
+if [[ "$AUTH_METHOD" == "prompt" ]]; then
     FORGE_CMD="$FORGE_CMD --interactives 1"
-else
+elif [[ "$AUTH_METHOD" == "account" ]]; then
     FORGE_CMD="$FORGE_CMD --account \"$FORGE_ACCOUNT\""
+elif [[ "$AUTH_METHOD" == "pk" ]]; then
+    FORGE_CMD="$FORGE_CMD --private-key \"$FORGE_KEY\""
+else
+    echo "Unsupported authentication method: $AUTH_METHOD"
+    exit 1
 fi
 
 # Execute command
