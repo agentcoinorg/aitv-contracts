@@ -328,6 +328,29 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         assertEq(address(distributor).balance, 0);
     }
 
+    function test_forbidsETHDistributionAfterDeadline() public {
+        address recipient = makeAddr("recipient");
+
+        vm.startPrank(owner);
+
+        uint256 distId = distributor.addDistribution(
+            new DistributionBuilder()
+                .send(10000, recipient)
+                .build()
+        );
+        distributor.setDistributionId("test", distId);
+
+        vm.stopPrank();
+
+        uint256 amount = 0.3 ether;
+        address user = makeAddr("user");
+        vm.deal(user, 1 ether);
+
+        vm.prank(user);
+        vm.expectPartialRevert(TokenDistributor.DeadlinePassed.selector);
+        distributor.distributeETH{value: amount}("test", user, address(0), new uint256[](0), block.timestamp - 1);
+    }
+
     function test_canExecuteSameDistributionMultipleTimes() public {
         address recipient = makeAddr("recipient");
 
@@ -455,6 +478,32 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         assertEq(erc20.balanceOf(user), 0.7 * 1e18);
         assertEq(erc20.balanceOf(recipient), amount);
         assertEq(erc20.balanceOf(address(distributor)), 0);
+    }
+
+    function test_forbidsERC20DistributionAfterDeadline() public {
+        address recipient = makeAddr("recipient");
+
+        vm.startPrank(owner);
+
+        uint256 distId = distributor.addDistribution(
+            new DistributionBuilder()
+                .send(10000, recipient)
+                .build()
+        );
+        distributor.setDistributionId("test", distId);
+
+        vm.stopPrank();
+
+        uint256 amount = 0.3 * 1e18;
+        MockedERC20 erc20 = new MockedERC20();
+        address user = makeAddr("user");
+        erc20.mint(user, 1e18);
+
+        vm.startPrank(user);
+        erc20.approve(address(distributor), amount);
+
+        vm.expectPartialRevert(TokenDistributor.DeadlinePassed.selector);
+        distributor.distributeERC20("test", user, amount, address(erc20), address(0), new uint256[](0), block.timestamp - 1);
     }
 
     function test_canSendERC20ToBeneficiary() public {
@@ -1235,7 +1284,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
                 poolKey: PoolKey({
                     currency0: Currency.wrap(usdc),
                     currency1: Currency.wrap(usdt),
-                    fee: 11,
+                    fee: 5,
                     tickSpacing: 1,
                     hooks: IHooks(address(0))
                 }),
@@ -1269,6 +1318,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.startPrank(user);
 
         IERC20(usdc).approve(address(distributor), amount);
+  
         distributor.distributeERC20("test", user, amount, usdc, address(0), new uint256[](0), block.timestamp);
 
         assertGt(user.balance, 0 ether);
@@ -1282,6 +1332,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         assertEq(address(distributor).balance, 0);
         assertEq(IERC20(usdc).balanceOf(address(distributor)), 0);
+        assertEq(IERC20(usdt).balanceOf(address(distributor)), 0);
     }
 
     function test_canSwapRecursively() public {

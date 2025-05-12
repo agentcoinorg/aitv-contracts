@@ -71,6 +71,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     error InvalidActionType();
     error TooManyCallArgs();
     error InvalidCallArgType();
+    error DeadlinePassed();
     
     event PoolConfigSet(
         address indexed currency0,
@@ -292,6 +293,10 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
             revert ZeroAmountNotAllowed();
         }
 
+        if (block.timestamp > _deadline) {
+            revert DeadlinePassed();
+        }
+
         uint256 distributionId = distributionNameToId[_distributionName];
         
         ActionArgs memory args = ActionArgs({
@@ -333,6 +338,10 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     ) external virtual {
         if (_amount == 0) {
             revert ZeroAmountNotAllowed();
+        }
+
+        if (block.timestamp > _deadline) {
+            revert DeadlinePassed();
         }
 
         IERC20(_paymentToken).safeTransferFrom(msg.sender, address(this), _amount);
