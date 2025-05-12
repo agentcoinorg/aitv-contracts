@@ -73,7 +73,19 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     error InvalidCallArgType();
     error DeadlinePassed();
     
+    event PoolConfigProposed(
+        uint256 proposalId,
+        bytes32 key,
+        address indexed currency0,
+        address indexed currency1,
+        address indexed hooks,
+        uint24 fee,
+        int24 tickSpacing,
+        UniswapVersion version
+    );
     event PoolConfigSet(
+        uint256 proposalId,
+        bytes32 key,
         address indexed currency0,
         address indexed currency1,
         address indexed hooks,
@@ -99,6 +111,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     address public weth;
 
     mapping(bytes32 => uint256) internal distributionNameToId;
+    PoolConfig[] poolProposals;
     mapping(bytes32 => PoolConfig) internal pools;
     mapping(uint256 => bytes) internal distributions;
     uint256 internal lastDistributionId;
@@ -183,25 +196,61 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         return abi.decode(blob, (Action[]));
     }
 
-    /// @notice Sets the pool config for a given pool
-    /// @param _config The pool config to be set
+    /// @notice Proposes a pool config for a given pool
+    /// @param _config The proposed pool config
     /// @dev The pool key must have currencies in the correct order (currency0 < currency1)
-    function setPoolConfig(PoolConfig calldata _config) external virtual onlyOwner {
+    function proposePoolConfig(PoolConfig calldata _config) external virtual returns(uint256) {
         if (_config.poolKey.currency0 >= _config.poolKey.currency1) {
             revert CurrenciesNotInOrder();
         }
 
         bytes32 key = keccak256(abi.encodePacked(_config.poolKey.currency0, _config.poolKey.currency1));
 
-        pools[key] = _config;
+        poolProposals.push(_config);
 
-        emit PoolConfigSet(
+        uint256 id = poolProposals.length - 1;
+
+        emit PoolConfigProposed(
+            id,
+            key,
             Currency.unwrap(_config.poolKey.currency0),
             Currency.unwrap(_config.poolKey.currency1),
             address(_config.poolKey.hooks),
             _config.poolKey.fee,
             _config.poolKey.tickSpacing,
             _config.version
+        );
+
+        return id;
+    }
+
+    /// @notice Gets the pool config proposal by id
+    /// @param _proposalId The id of the pool config proposal
+    /// @return config The pool config
+    function getPoolConfigProposal(uint256 _proposalId) external view virtual returns (PoolConfig memory) {
+        PoolConfig memory config = poolProposals[_proposalId];
+
+        return config;
+    }
+
+    /// @notice Sets the pool config for a given pool from a proposal
+    /// @param _proposalId The id of the pool config proposal
+    function setPoolConfig(uint256 _proposalId) external virtual onlyOwner {
+        PoolConfig memory config = poolProposals[_proposalId];
+
+        bytes32 key = keccak256(abi.encodePacked(config.poolKey.currency0, config.poolKey.currency1));
+
+        pools[key] = config;
+
+        emit PoolConfigSet(
+            _proposalId,
+            key,
+            Currency.unwrap(config.poolKey.currency0),
+            Currency.unwrap(config.poolKey.currency1),
+            address(config.poolKey.hooks),
+            config.poolKey.fee,
+            config.poolKey.tickSpacing,
+            config.version
         );
     }
 
@@ -212,6 +261,13 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     function getPoolConfig(address _tokenA, address _tokenB) external view virtual returns (PoolConfig memory) {
         bytes32 key = _getSwapPairKey(_tokenA, _tokenB);
         return pools[key];
+    }
+
+    /// @notice Gets the pool config for a given pool
+    /// @param _key The key of the pool
+    /// @return config The pool config
+    function getPoolConfigByKey(bytes32 _key) external view virtual returns (PoolConfig memory) {
+        return pools[_key];
     }
 
     /// @notice Sets the distribution id for a given name
