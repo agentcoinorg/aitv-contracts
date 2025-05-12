@@ -131,9 +131,9 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         distributor.addDistribution(actions);
     }
 
-    function test_canSetPoolConfig() public {
-        vm.prank(owner);
-        distributor.setPoolConfig(
+    function test_anyoneCanProposePoolConfig() public {
+        vm.prank(makeAddr("anon"));
+        uint256 configId = distributor.proposePoolConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -145,6 +145,32 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
                 version: UniswapVersion.V4
             })
         );
+
+        PoolConfig memory poolConfig = distributor.getPoolConfigProposal(configId);
+        assertEq(Currency.unwrap(poolConfig.poolKey.currency0), weth);
+        assertEq(Currency.unwrap(poolConfig.poolKey.currency1), usdc);
+        assertEq(poolConfig.poolKey.fee, 50);
+        assertEq(address(poolConfig.poolKey.hooks), address(1337));
+        assertEq(poolConfig.poolKey.tickSpacing, 200);
+        assertEq(uint8(poolConfig.version), uint8(UniswapVersion.V4));
+    }
+
+    function test_canSetPoolConfig() public {
+        uint256 configId = distributor.proposePoolConfig(
+            PoolConfig({
+                poolKey: PoolKey({
+                    currency0: Currency.wrap(weth),
+                    currency1: Currency.wrap(usdc),
+                    fee: 50,
+                    tickSpacing: 200,
+                    hooks: IHooks(address(1337))
+                }),
+                version: UniswapVersion.V4
+            })
+        );
+
+        vm.prank(owner);
+        distributor.setPoolConfig(configId);
         PoolConfig memory poolConfig = distributor.getPoolConfig(weth, usdc);
         assertEq(Currency.unwrap(poolConfig.poolKey.currency0), weth);
         assertEq(Currency.unwrap(poolConfig.poolKey.currency1), usdc);
@@ -155,8 +181,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
     }
 
     function test_canOverridePoolConfig() public {
-        vm.startPrank(owner);
-        distributor.setPoolConfig(
+        uint256 configId1 = distributor.proposePoolConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -168,7 +193,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
                 version: UniswapVersion.V4
             })
         );
-        distributor.setPoolConfig(
+        uint256 configId2 = distributor.proposePoolConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -180,6 +205,10 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
                 version: UniswapVersion.V3
             })
         );
+
+        vm.startPrank(owner);
+        distributor.setPoolConfig(configId1);
+        distributor.setPoolConfig(configId2);
         PoolConfig memory poolConfig = distributor.getPoolConfig(weth, usdc);
         assertEq(Currency.unwrap(poolConfig.poolKey.currency0), weth);
         assertEq(Currency.unwrap(poolConfig.poolKey.currency1), usdc);
@@ -191,7 +220,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
     function test_canSetMultiplePoolConfigs() public {
         vm.startPrank(owner);
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -203,7 +232,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
                 version: UniswapVersion.V2
             })
         );
-        distributor.setPoolConfig(
+       _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(address(0)),
@@ -233,8 +262,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
     }
 
     function test_onlyOwnerCanSetPoolConfig() public {
-        vm.prank(owner);
-        distributor.setPoolConfig(
+        uint256 configId = distributor.proposePoolConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -247,20 +275,12 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
             })
         );
 
+        vm.prank(owner);
+        distributor.setPoolConfig(configId);
+
         vm.prank(makeAddr("user"));
         vm.expectPartialRevert(OwnableUpgradeable.OwnableUnauthorizedAccount.selector);
-        distributor.setPoolConfig(
-            PoolConfig({
-                poolKey: PoolKey({
-                    currency0: Currency.wrap(address(0)),
-                    currency1: Currency.wrap(usdc),
-                    fee: 150,
-                    tickSpacing: 100,
-                    hooks: IHooks(address(1337))
-                }),
-                version: UniswapVersion.V4
-            })
-        );
+        distributor.setPoolConfig(configId);
     }
 
     function test_canSetDistributionId() public {
@@ -687,7 +707,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -741,7 +761,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
     function test_canSwapETHToERC20WithUniV2ForBeneficiary() public {
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -794,7 +814,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -852,7 +872,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(ussi),
@@ -907,7 +927,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -961,7 +981,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
     function test_canSwapETHToERC20WithUniV3ForBeneficiary() public {
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -1014,7 +1034,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -1073,7 +1093,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(usdc),
@@ -1128,7 +1148,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(address(0)),
@@ -1175,7 +1195,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
     function test_canSwapETHToERC20WithUniV4ForBeneficiary() public {
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(address(0)),
@@ -1222,7 +1242,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(address(0)),
@@ -1279,7 +1299,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(usdc),
@@ -1340,7 +1360,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -1353,7 +1373,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
             })
         );
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(usdc),
@@ -1576,14 +1596,14 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(owner);
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: poolKey,
                 version: UniswapVersion.V4
             })
         );
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(weth),
@@ -1596,7 +1616,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
             })
         );
 
-        distributor.setPoolConfig(
+        _addConfig(
             PoolConfig({
                 poolKey: PoolKey({
                     currency0: Currency.wrap(usdc),
@@ -1820,6 +1840,14 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
             user,
             key,
             outAmount
+        );
+    }
+
+    function _addConfig(PoolConfig memory config) internal {
+        distributor.setPoolConfig(
+            distributor.proposePoolConfig(
+                config
+            )
         );
     }
 
