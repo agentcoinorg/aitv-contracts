@@ -65,4 +65,7 @@ The following is the list of cases:
 More information about the fee structure can be found [here](https://docs.agentcoin.tv/interactive-viewership#fee-distribution)
 
 ### TokenDistributor
-This contract handles flexible and programmable distributions of ETH or ERC20 tokens. It supports sending, burning, swapping via Uniswap (V2/V3/V4), and calling external contracts with encoded arguments. Distributions are composed of modular actions and can be nested to enable complex flows like funding, liquidity provisioning, and launch pool participation.
+This contract handles flexible and programmable distributions of ETH or ERC20 tokens. 
+It supports sending, burning, swapping via Uniswap (V2/V3/V4), and calling external contracts with encoded arguments. 
+Distributions are composed of modular actions and can be nested to enable complex flows like funding, liquidity provisioning, and launch pool participation.
+A distribution needs to be paired with a human readable name (bytes32) before it can be executed.
