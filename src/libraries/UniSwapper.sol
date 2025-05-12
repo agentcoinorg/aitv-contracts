@@ -27,6 +27,7 @@ library UniSwapper {
     /// @return amountOut      how many `tokenOut` landed in `recipient`
     function swapExactIn(
         address _recipient,
+        address _sweepRecipient,
         PoolConfig memory _poolConfig,
         address _tokenIn,
         address _tokenOut,
@@ -48,76 +49,86 @@ library UniSwapper {
             IPermit2(_permit2).approve(_tokenIn, address(_universalRouter), uint160(_amountIn), uint48(_deadline) + 1); // +1 because expiration is "The timestamp at which the approval is no longer valid"
         }
 
-        bytes memory commands = abi.encodePacked(
-            _poolConfig.version == UniswapVersion.V2 ? uint8(Commands.V2_SWAP_EXACT_IN) :
-            _poolConfig.version == UniswapVersion.V3 ? uint8(Commands.V3_SWAP_EXACT_IN) :
-                                     uint8(Commands.V4_SWAP)
-        );
+        {
+            bytes memory commands;
+        
+            {
+                uint8 swapAction = _poolConfig.version == UniswapVersion.V2 
+                    ? uint8(Commands.V2_SWAP_EXACT_IN) 
+                    : _poolConfig.version == UniswapVersion.V3 
+                        ? uint8(Commands.V3_SWAP_EXACT_IN) 
+                        : uint8(Commands.V4_SWAP);
+                
+                commands = abi.encodePacked(swapAction, uint8(Commands.SWEEP));
+            }
 
-        bytes[] memory inputs = new bytes[](1);
+            bytes[] memory inputs = new bytes[](2);
 
-        if (_poolConfig.version == UniswapVersion.V2) {
-            address[] memory path = new address[](2);
-            path[0] = _tokenIn;
-            path[1] = _tokenOut;
-            inputs[0] = abi.encode(
-              ActionConstants.MSG_SENDER,
-              _amountIn,
-              _amountOutMin,
-              path,
-              true
-            );
-        } else if (_poolConfig.version == UniswapVersion.V3) {
-            bytes memory path = abi.encodePacked(_tokenIn, uint24(_poolConfig.poolKey.fee), _tokenOut);
-            inputs[0] = abi.encode(
-                _recipient,
+            if (_poolConfig.version == UniswapVersion.V2) {
+                address[] memory path = new address[](2);
+                path[0] = _tokenIn;
+                path[1] = _tokenOut;
+                inputs[0] = abi.encode(
+                ActionConstants.MSG_SENDER,
                 _amountIn,
                 _amountOutMin,
                 path,
                 true
-            );
-        } else {
-            bool zeroForOne;
-
-            if (_tokenIn == Currency.unwrap(_poolConfig.poolKey.currency0) && _tokenOut == Currency.unwrap(_poolConfig.poolKey.currency1)) {
-                zeroForOne = true;
-            } else if (_tokenIn == Currency.unwrap(_poolConfig.poolKey.currency1) && _tokenOut == Currency.unwrap(_poolConfig.poolKey.currency0)) {
-                zeroForOne = false;
+                );
+            } else if (_poolConfig.version == UniswapVersion.V3) {
+                bytes memory path = abi.encodePacked(_tokenIn, uint24(_poolConfig.poolKey.fee), _tokenOut);
+                inputs[0] = abi.encode(
+                    _recipient,
+                    _amountIn,
+                    _amountOutMin,
+                    path,
+                    true
+                );
             } else {
-                revert InvalidTokenInOut();
+                bool zeroForOne;
+
+                if (_tokenIn == Currency.unwrap(_poolConfig.poolKey.currency0) && _tokenOut == Currency.unwrap(_poolConfig.poolKey.currency1)) {
+                    zeroForOne = true;
+                } else if (_tokenIn == Currency.unwrap(_poolConfig.poolKey.currency1) && _tokenOut == Currency.unwrap(_poolConfig.poolKey.currency0)) {
+                    zeroForOne = false;
+                } else {
+                    revert InvalidTokenInOut();
+                }
+
+                bytes memory swapExactSingleParams = abi.encode(
+                    IV4Router.ExactInputSingleParams({
+                        poolKey: _poolConfig.poolKey,
+                        zeroForOne: zeroForOne,
+                        amountIn: uint128(_amountIn),
+                        amountOutMinimum: _amountOutMin,
+                        hookData: bytes("")
+                    })
+                );
+
+                bytes memory actions = abi.encodePacked(
+                    uint8(Actions.SWAP_EXACT_IN_SINGLE),
+                    uint8(Actions.SETTLE_ALL),
+                    uint8(Actions.TAKE_ALL)
+                );
+
+                bytes[] memory params = new bytes[](3);
+                
+                params[0] = swapExactSingleParams;
+                
+                params[1] = abi.encode(_tokenIn, uint128(_amountIn));
+                params[2] = abi.encode(_tokenOut, _amountOutMin);
+
+                inputs[0] = abi.encode(actions, params);
             }
 
-            bytes memory swapExactSingleParams = abi.encode(
-                IV4Router.ExactInputSingleParams({
-                    poolKey: _poolConfig.poolKey,
-                    zeroForOne: zeroForOne,
-                    amountIn: uint128(_amountIn),
-                    amountOutMinimum: _amountOutMin,
-                    hookData: bytes("")
-                })
+            inputs[1] = abi.encode(_tokenIn, _sweepRecipient);
+
+            _universalRouter.execute{ value: (_tokenIn == address(0) ? _amountIn : 0) }(
+                commands,
+                inputs,
+                _deadline
             );
-
-            bytes memory actions = abi.encodePacked(
-                uint8(Actions.SWAP_EXACT_IN_SINGLE),
-                uint8(Actions.SETTLE_ALL),
-                uint8(Actions.TAKE_ALL)
-            );
-
-            bytes[] memory params = new bytes[](3);
-            
-            params[0] = swapExactSingleParams;
-            
-            params[1] = abi.encode(_tokenIn, uint128(_amountIn));
-            params[2] = abi.encode(_tokenOut, _amountOutMin);
-
-            inputs[0] = abi.encode(actions, params);
         }
-
-        _universalRouter.execute{ value: (_tokenIn == address(0) ? _amountIn : 0) }(
-            commands,
-            inputs,
-            _deadline
-        );
 
         uint256 endBal = _tokenOut == address(0)
             ? address(_recipient).balance 
