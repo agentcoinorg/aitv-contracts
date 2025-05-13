@@ -517,6 +517,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
 
                 out = UniSwapper.swapExactIn(
                     address(this),
+                    _args.beneficiary,
                     poolConfig,
                     _paymentToken,
                     _action.token,
