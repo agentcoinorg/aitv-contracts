@@ -59,6 +59,8 @@ interface IWETH {
 contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
     using Address for address payable;
+
+    uint256 internal constant MAX_BASIS_POINTS = 10_000;
     
     error ZeroAddressNotAllowed();
     error CurrenciesNotInOrder();
@@ -72,6 +74,8 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     error TooManyCallArgs();
     error InvalidCallArgType();
     error DeadlinePassed();
+    error MinAmountOutNotSet(uint256 index);
+    error PoolConfigNotFound(address tokenIn, address tokenOut);
     
     event PoolConfigProposed(
         uint256 proposalId,
@@ -110,10 +114,10 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     IPermit2 public permit2;
     address public weth;
 
-    mapping(bytes32 => uint256) internal distributionNameToId;
-    PoolConfig[] poolProposals;
-    mapping(bytes32 => PoolConfig) internal pools;
-    mapping(uint256 => bytes) internal distributions;
+    mapping(bytes32 distributionName => uint256 distributionId) internal distributionNameToId;
+    PoolConfig[] internal poolProposals;
+    mapping(bytes32 key => PoolConfig config) internal pools;
+    mapping(uint256 distributionId => bytes distribution) internal distributions;
     uint256 internal lastDistributionId;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -176,7 +180,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
 
             totalBasis += _actions[i].basisPoints;
         }
-        if (totalBasis != 10_000) {
+        if (totalBasis != MAX_BASIS_POINTS) {
             revert BasisPointsMustSumTo10000();
         }
 
@@ -461,7 +465,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
             _minAmountsOutIndex = _execAction(
                 actions[i],
                 _args,
-               (_amount * actions[i].basisPoints) / 10_000,
+               (_amount * actions[i].basisPoints) / MAX_BASIS_POINTS,
                 _paymentToken,
                 _minAmountsOut,
                 _minAmountsOutIndex,
@@ -515,6 +519,14 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
             } else {
                 PoolConfig memory poolConfig = pools[_getSwapPairKey(_paymentToken, _action.token)];
 
+                if (poolConfig.poolKey.currency0 == Currency.wrap(address(0)) && poolConfig.poolKey.currency1 == Currency.wrap(address(0))) {
+                    revert PoolConfigNotFound(_paymentToken, _action.token);
+                }
+
+                if (_minAmountsOutIndex >= _minAmountsOut.length || _minAmountsOut[_minAmountsOutIndex] == 0) {
+                    revert MinAmountOutNotSet(_minAmountsOutIndex);
+                }
+
                 out = UniSwapper.swapExactIn(
                     address(this),
                     _args.beneficiary,
@@ -522,9 +534,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
                     _paymentToken,
                     _action.token,
                     _amount,
-                    _minAmountsOutIndex < _minAmountsOut.length
-                        ? uint128(_minAmountsOut[_minAmountsOutIndex])
-                        : 0,
+                    uint128(_minAmountsOut[_minAmountsOutIndex]),
                     _deadline,
                     uniswapUniversalRouter,
                     permit2
