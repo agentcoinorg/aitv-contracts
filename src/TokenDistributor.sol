@@ -11,6 +11,7 @@ import {IUniversalRouter} from "@uniswap/universal-router/src/interfaces/IUniver
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {IBurnable} from "./interfaces/IBurnable.sol";
+import {ITokenDistributor} from "./interfaces/ITokenDistributor";
 import {UniSwapper} from "./libraries/UniSwapper.sol";
 import {PoolConfig} from "./types/PoolConfig.sol";
 import {UniswapVersion} from "./types/UniswapVersion.sol";
@@ -56,7 +57,7 @@ interface IWETH {
 
 /// @title TokenDistributor
 /// @notice Contract for complex distributions and conversions of tokens 
-contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
+contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, ITokenDistributor {
     using SafeERC20 for IERC20;
     using Address for address payable;
 
