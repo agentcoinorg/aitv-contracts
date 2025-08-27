@@ -102,8 +102,7 @@ contract AddRoastDistributionScript is Script {
         vm.stopBroadcast();
 
         Action[] memory actions3 = new DistributionBuilder()
-            .send(1_000, owner)
-            .buy(1_000, aitvTokenAddr, address(0))
+            .buy(2_000, aitvTokenAddr, address(0))
             .buy(8_000, weth, subDistId2)
             .build();
 
