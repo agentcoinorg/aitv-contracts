@@ -80,7 +80,6 @@ contract AddRoastDistributionScript is Script {
 
     function deployRoastDistribution() public returns (uint256) {
         address aitvTokenAddr = vm.envAddress("AITV_TOKEN_BASE");
-        address owner = vm.envAddress("TOKEN_DISTRIBUTOR_OWNER");
         address distributorAddr = vm.envAddress("TOKEN_DISTRIBUTOR");
         TokenDistributor distributor = TokenDistributor(payable(distributorAddr));
         address weth = vm.envAddress("WETH");

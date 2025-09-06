@@ -18,7 +18,7 @@ import {AgentFactoryTestUtils} from "./helpers/AgentFactoryTestUtils.sol";
 import {TokenDistributor, Action, ActionType} from "../src/TokenDistributor.sol";
 import {MockedERC20} from "./helpers/MockedERC20.sol";
 import {UniswapVersion} from "../src/types/UniswapVersion.sol";
-import {CallArgType, Swap} from "../src/TokenDistributor.sol";
+import {CallArgType, Swap, DistributionRequest} from "../src/TokenDistributor.sol";
 import {PoolConfig} from "../src/types/PoolConfig.sol";
 import {DistributionBuilder} from "../src/DistributionBuilder.sol";
 
@@ -341,7 +341,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.deal(user, 1 ether);
 
         vm.prank(user);
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.7 ether);
         assertEq(recipient.balance, amount);
@@ -368,7 +368,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.prank(user);
         vm.expectPartialRevert(TokenDistributor.DeadlinePassed.selector);
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp - 1);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp - 1, amount);
     }
 
     function test_canExecuteSameDistributionMultipleTimes() public {
@@ -390,14 +390,14 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.deal(user, 1 ether);
 
         vm.prank(user);
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.7 ether);
         assertEq(recipient.balance, amount);
         assertEq(address(distributor).balance, 0);
 
         vm.prank(user);
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.4 ether);
         assertEq(recipient.balance, amount * 2);
@@ -435,14 +435,14 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.deal(user, 1 ether);
 
         vm.prank(user);
-        distributor.distributeETH{value: amount}("test1", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test1", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.7 ether);
         assertEq(recipient1.balance, amount);
         assertEq(address(distributor).balance, 0);
 
         vm.prank(user);
-        distributor.distributeETH{value: amount}("test2", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test2", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.4 ether);
         assertEq(recipient2.balance, amount);
@@ -466,7 +466,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.deal(user, 1 ether);
 
         vm.prank(user);
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 1 ether);
         assertEq(address(distributor).balance, 0);
@@ -493,7 +493,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
         erc20.approve(address(distributor), amount);
-        distributor.distributeERC20("test", user, amount, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, amount, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp);
 
         assertEq(erc20.balanceOf(user), 0.7 * 1e18);
         assertEq(erc20.balanceOf(recipient), amount);
@@ -523,7 +523,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         erc20.approve(address(distributor), amount);
 
         vm.expectPartialRevert(TokenDistributor.DeadlinePassed.selector);
-        distributor.distributeERC20("test", user, amount, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp - 1);
+        _distributeERC20("test", user, amount, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp - 1);
     }
 
     function test_canSendERC20ToBeneficiary() public {
@@ -545,7 +545,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
         erc20.approve(address(distributor), amount);
-        distributor.distributeERC20("test", user, amount, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, amount, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp);
 
         assertEq(erc20.balanceOf(user), 1e18);
         assertEq(erc20.balanceOf(address(distributor)), 0);
@@ -572,7 +572,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.deal(user, 1.1 ether);
 
         vm.prank(user);
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.1 ether);
         assertEq(recipient1.balance, amount * 7000 / 10000);
@@ -603,7 +603,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
         erc20.approve(address(distributor), amount);
-        distributor.distributeERC20("test", user, amount, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, amount, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp);
 
         assertEq(erc20.balanceOf(user), 0.1 * 1e18);
         assertEq(erc20.balanceOf(recipient1), amount * 7000 / 10000);
@@ -633,7 +633,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
         erc20.approve(address(distributor), amount);
-        distributor.distributeERC20("test", user, amount, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, amount, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp);
 
         assertEq(erc20.balanceOf(user), 0.9 * 1e18);
         assertEq(erc20.totalSupply(), 0.9 * 1e18);
@@ -659,7 +659,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.deal(user, 1 ether);
 
         vm.prank(user);
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(IERC20(weth).balanceOf(recipient), 0.4 * 1e18);
         assertEq(user.balance, 0.6 ether);
@@ -693,7 +693,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         assertEq(user.balance, 0.6 ether);
 
         IERC20(weth).approve(address(distributor), amount);
-        distributor.distributeERC20("test", user, amount, weth, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, amount, weth, address(0), _buildMockMinAmountsOut(1), block.timestamp);
 
         assertEq(IERC20(weth).balanceOf(recipient), 0);
         assertEq(user.balance, 0.6 ether);
@@ -744,7 +744,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.6 ether);
         assertEq(recipient.balance, 0);
@@ -798,7 +798,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.6 ether);
         assertEq(IERC20(weth).balanceOf(user), 0);
@@ -856,10 +856,10 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         minAmountsOut2[0] = 0;
 
         vm.expectPartialRevert(TokenDistributor.MinAmountOutNotSet.selector);
-        distributor.distributeETH{value: amount}("test", user, address(0), minAmountsOut1, block.timestamp);
+        _distributeETH("test", user, address(0), minAmountsOut1, block.timestamp, amount);
     
         vm.expectPartialRevert(TokenDistributor.MinAmountOutNotSet.selector);
-        distributor.distributeETH{value: amount}("test", user, address(0), minAmountsOut2, block.timestamp);
+        _distributeETH("test", user, address(0), minAmountsOut2, block.timestamp, amount);
     }
 
      function test_forbidsSwappingWithoutPoolConfig() public {
@@ -892,7 +892,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.startPrank(user);
 
         vm.expectPartialRevert(TokenDistributor.PoolConfigNotFound.selector);
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
     }
 
     function test_canSwapERC20ToETHWithUniV2() public {
@@ -940,7 +940,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.startPrank(user);
 
         IERC20(usdc).approve(address(distributor), amount);
-        distributor.distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
 
         assertGt(user.balance, 0 ether);
         assertLt(user.balance, 1 ether);
@@ -994,7 +994,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.startPrank(user);
 
         IERC20(usdc).approve(address(distributor), amount);
-        distributor.distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
 
         assertGt(user.balance, 0 ether);
         assertLt(user.balance, 1 ether);
@@ -1050,7 +1050,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.6 ether);
         assertEq(recipient.balance, 0);
@@ -1104,7 +1104,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.6 ether);
         assertEq(IERC20(weth).balanceOf(user), 0);
@@ -1160,7 +1160,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.startPrank(user);
 
         IERC20(usdc).approve(address(distributor), amount);
-        distributor.distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
 
         assertGt(user.balance, 0 ether);
         assertLt(user.balance, 1 ether);
@@ -1215,7 +1215,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.startPrank(user);
 
         IERC20(usdc).approve(address(distributor), amount);
-        distributor.distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
 
         assertGt(user.balance, 0 ether);
         assertLt(user.balance, 1 ether);
@@ -1267,7 +1267,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.6 ether);
         assertEq(recipient.balance, 0);
@@ -1314,7 +1314,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: amount}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, amount);
 
         assertEq(user.balance, 0.6 ether);
         assertGt(IERC20(usdc).balanceOf(user), 0.4 * 1e6);
@@ -1367,7 +1367,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.startPrank(user);
 
         IERC20(usdc).approve(address(distributor), amount);
-        distributor.distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
 
         assertGt(user.balance, 0 ether);
         assertLt(user.balance, 1 ether);
@@ -1390,7 +1390,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
                 poolKey: PoolKey({
                     currency0: Currency.wrap(usdc),
                     currency1: Currency.wrap(usdt),
-                    fee: 5,
+                    fee: 7,
                     tickSpacing: 1,
                     hooks: IHooks(address(0))
                 }),
@@ -1425,7 +1425,12 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         IERC20(usdc).approve(address(distributor), amount);
   
-        distributor.distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        uint256 gasLeftX = gasleft();
+
+        _distributeERC20("test", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+
+        gasLeftX = gasLeftX - gasleft();
+        console.log("Spent %s gas", gasLeftX);
 
         assertGt(user.balance, 0 ether);
         assertLt(user.balance, 1 ether);
@@ -1509,7 +1514,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: 0.4 ether}("test", user, address(0), _buildMockMinAmountsOut(2), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(2), block.timestamp, 0.4 ether);
 
         assertEq(user.balance, 0.6 ether);
         assertEq(recipient.balance, 0);
@@ -1546,7 +1551,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: 0.4 ether}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, 0.4 ether);
 
         assertEq(user.balance, 0.6 ether);
         assertEq(escrow.deposits(address(distributor)), 0.4 ether);
@@ -1574,7 +1579,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: 0.4 ether}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, 0.4 ether);
 
         assertEq(user.balance, 0.6 ether);
         assertEq(escrow.deposits(address(distributor)), 0);
@@ -1604,7 +1609,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: 0.4 ether}("test", beneficiary, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", beneficiary, address(0), _buildMockMinAmountsOut(1), block.timestamp, 0.4 ether);
 
         assertEq(user.balance, 0.6 ether);
         assertEq(escrow.sender(), user);
@@ -1673,7 +1678,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: 3 ether}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, 3 ether);
 
         vm.warp(block.timestamp + timeWindow);
 
@@ -1781,7 +1786,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: 0.4 ether}("test", user, address(0), _buildMockMinAmountsOut(3), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(3), block.timestamp, 0.4 ether);
 
         assertEq(user.balance, 0.6 ether);
         assertEq(recipient.balance, 0);
@@ -1832,7 +1837,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         vm.startPrank(user);
 
-        distributor.distributeETH{value: 0.4 ether}("test", user, recipient, _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, recipient, _buildMockMinAmountsOut(1), block.timestamp, 0.4 ether);
         assertEq(user.balance, 0.6 ether);
         assertEq(recipient.balance, 0.4 ether);
 
@@ -1840,18 +1845,18 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         erc20.mint(user, 1e18);
 
         erc20.approve(address(distributor), 0.4 * 1e18);
-        distributor.distributeERC20("test", user, 0.4 * 1e18, address(erc20), recipient, _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, 0.4 * 1e18, address(erc20), recipient, _buildMockMinAmountsOut(1), block.timestamp);
         assertEq(erc20.balanceOf(user), 0.6 * 1e18);
         assertEq(erc20.balanceOf(recipient), 0.4 * 1e18);
     
         vm.expectPartialRevert(TokenDistributor.CallFailed.selector);
-        distributor.distributeETH{value: 0.4 ether}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, 0.4 ether);
         assertEq(user.balance, 0.6 ether); // No change
         assertEq(recipient.balance, 0.4 ether); // No change
 
         erc20.approve(address(distributor), 0.4 * 1e18);
         vm.expectPartialRevert(TokenDistributor.CallFailed.selector);
-        distributor.distributeERC20("test", user, 0.4 * 1e18, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeERC20("test", user, 0.4 * 1e18, address(erc20), address(0), _buildMockMinAmountsOut(1), block.timestamp);
         assertEq(erc20.balanceOf(user), 0.6 * 1e18); // No change
         assertEq(erc20.balanceOf(recipient), 0.4 * 1e18); // No change
     }
@@ -1880,7 +1885,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         vm.deal(user, 1 ether);
 
         vm.startPrank(user);
-        distributor.distributeETH{value: 0.4 ether}("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, 0.4 ether);
 
         assertEq(TokenDistributorV2Mock(payable(address(distributor))).value(), 0.4 ether);
     }
@@ -2002,6 +2007,43 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         }
         return minAmountsOut;
     }
+
+    function _distributeETH(
+        bytes32 _distributionName, 
+        address _beneficiary,
+        address _recipientOnFailure,
+        uint256[] memory _minAmountsOut,
+        uint256 _deadline,
+        uint256 _amount
+    ) internal {
+        DistributionRequest[] memory requests = new DistributionRequest[](1);
+        requests[0] = DistributionRequest({
+            beneficiary: _beneficiary,
+            amount: _amount,
+            recipientOnFailure: _recipientOnFailure
+        });
+
+        distributor.batchDistributeETH{value: _amount}(_distributionName, requests, _minAmountsOut, _deadline, 0x0);
+    }
+
+    function _distributeERC20(
+        bytes32 _distributionName, 
+        address _beneficiary, 
+        uint256 _amount, 
+        address _paymentToken,
+        address _recipientOnFailure,
+        uint256[] memory _minAmountsOut,
+        uint256 _deadline
+    ) internal {
+        DistributionRequest[] memory requests = new DistributionRequest[](1);
+        requests[0] = DistributionRequest({
+            beneficiary: _beneficiary,
+            amount: _amount,
+            recipientOnFailure: _recipientOnFailure
+        });
+
+        distributor.batchDistributeERC20(_distributionName, _paymentToken, requests, _minAmountsOut, _deadline, 0x0);
+    }
 }
 
 contract MockEscrow {
@@ -2035,13 +2077,13 @@ contract MockEscrow {
 contract TokenDistributorV2Mock is TokenDistributor {
     uint256 public value;
     
-    function distributeETH(
+    function batchDistributeETH(
         bytes32, 
-        address,
-        address,
-        uint256[] calldata,
-        uint256
-    ) external override payable {
+        DistributionRequest[] memory, 
+        uint256[] memory, 
+        uint256,
+        bytes32
+    ) external payable override {
         value = msg.value;
-    } 
+    }
 }

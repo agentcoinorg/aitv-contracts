@@ -52,7 +52,6 @@ contract AddAITVDistributionScript is Script {
     function deployViladyDistribution() public returns (uint256) {
         address viladyTokenAddr = 0x0deE1df0F634dF4792E76816b42002fB2a97c432;
         address aitvTokenAddr = vm.envAddress("AITV_TOKEN_BASE");
-        address owner = vm.envAddress("TOKEN_DISTRIBUTOR_OWNER");
         address distributorAddr = vm.envAddress("TOKEN_DISTRIBUTOR");
         address weth = vm.envAddress("WETH");
 
@@ -91,7 +90,6 @@ contract AddAITVDistributionScript is Script {
     function deployGeckoDistribution() public returns (uint256) {
         address aitvTokenAddr = vm.envAddress("AITV_TOKEN_BASE");
         address geckoTokenAddr = 0x452867Ec20dC5061056C1613db2801f512dDa1C1;
-        address owner = vm.envAddress("TOKEN_DISTRIBUTOR_OWNER");
         address distributorAddr = vm.envAddress("TOKEN_DISTRIBUTOR");
         TokenDistributor distributor = TokenDistributor(payable(distributorAddr));
         address weth = vm.envAddress("WETH");
