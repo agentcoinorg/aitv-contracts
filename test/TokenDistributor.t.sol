@@ -2,10 +2,9 @@
 pragma solidity ^0.8.0;
 
 import {Test, console} from "forge-std/Test.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IUniversalRouter} from "@uniswap/universal-router/src/interfaces/IUniversalRouter.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
@@ -38,17 +37,12 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         _deployDefaultContracts();
 
-        address distributorImpl = address(new TokenDistributor());
-
-        distributor = TokenDistributor(payable(address(new ERC1967Proxy(
-            distributorImpl,
-            abi.encodeCall(TokenDistributor.initialize, (
-                owner,
-                IUniversalRouter(uniswapUniversalRouter),
-                IPermit2(permit2),
-                weth
-            ))
-        ))));
+        distributor = new TokenDistributor(
+            owner,
+            IUniversalRouter(uniswapUniversalRouter),
+            IPermit2(permit2),
+            weth
+        );
     }
 
     function test_anyoneCanAddDistribution() public {
@@ -278,7 +272,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         distributor.setPoolConfig(configId);
 
         vm.prank(makeAddr("user"));
-        vm.expectPartialRevert(OwnableUpgradeable.OwnableUnauthorizedAccount.selector);
+        vm.expectPartialRevert(Ownable.OwnableUnauthorizedAccount.selector);
         distributor.setPoolConfig(configId);
     }
 
@@ -317,7 +311,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         uint256 distId = distributor.addDistribution(actions);
 
         vm.prank(makeAddr("user"));
-        vm.expectPartialRevert(OwnableUpgradeable.OwnableUnauthorizedAccount.selector);
+        vm.expectPartialRevert(Ownable.OwnableUnauthorizedAccount.selector);
         distributor.setDistributionId("test", distId);
     }
 
@@ -1860,34 +1854,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         assertEq(erc20.balanceOf(recipient), 0.4 * 1e18); // No change
     }
 
-    function test_canUpgradeTokenDistributor() public { 
-        TokenDistributor newImplementation = new TokenDistributor();
-    
-        vm.prank(owner);
-        distributor.upgradeToAndCall(address(newImplementation), "");
-    }
-
-    function test_forbidsNonOwnerFromUpgradingTokenDistributor() public { 
-        TokenDistributor newImplementation = new TokenDistributor();
-    
-        vm.expectPartialRevert(OwnableUpgradeable.OwnableUnauthorizedAccount.selector);
-        distributor.upgradeToAndCall(address(newImplementation), "");
-    }
-
-    function test_canOverrideTokenDistributorFunctions() public { 
-        TokenDistributorV2Mock newImplementation = new TokenDistributorV2Mock();
-    
-        vm.prank(owner);
-        distributor.upgradeToAndCall(address(newImplementation), "");
-
-        address user = makeAddr("user");
-        vm.deal(user, 1 ether);
-
-        vm.startPrank(user);
-        _distributeETH("test", user, address(0), _buildMockMinAmountsOut(1), block.timestamp, 0.4 ether);
-
-        assertEq(TokenDistributorV2Mock(payable(address(distributor))).value(), 0.4 ether);
-    }
+    // Upgrade-specific tests removed for non-upgradeable contract
 
     function _launch(address depositor) internal returns(AgentLaunchPool, PoolKey memory, IERC20) {
         vm.deal(depositor, 10 ether);
@@ -2073,16 +2040,4 @@ contract MockEscrow {
     }
 }
 
-contract TokenDistributorV2Mock is TokenDistributor {
-    uint256 public value;
-    
-    function batchDistributeETH(
-        bytes32, 
-        DistributionRequest[] memory, 
-        uint256[] memory, 
-        uint256,
-        bytes32
-    ) external payable override {
-        value = msg.value;
-    }
-}
+// Upgrade mock removed for non-upgradeable contract

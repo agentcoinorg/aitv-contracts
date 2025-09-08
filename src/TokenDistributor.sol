@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -70,7 +70,7 @@ interface IWETH {
 
 /// @title TokenDistributor
 /// @notice Contract for complex distributions and conversions of tokens 
-contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable {
+contract TokenDistributor is Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Address for address payable;
 
@@ -134,31 +134,20 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     mapping(uint256 distributionId => bytes distribution) internal distributions;
     uint256 internal lastDistributionId;
     
-
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
     /// @notice Initializes the contract
-    /// @param _owner The owner of the contract and the one who can upgrade it
+    /// @param _owner The owner of the contract
     /// @param _uniswapUniversalRouter The address of the universal router
     /// @param _permit2 The address of the permit2 contract
     /// @param _weth The address of the WETH contract
-    function initialize(
+    constructor(
         address _owner,
         IUniversalRouter _uniswapUniversalRouter,
         IPermit2 _permit2,
         address _weth
-    ) external initializer {
+    ) Ownable(_owner) {
         if (address(_uniswapUniversalRouter) == address(0) || address(_permit2) == address(0) || _weth == address(0)) {
             revert ZeroAddressNotAllowed();
         }
-
-        __Ownable_init(_owner); // Checks for zero address
-        __Ownable2Step_init();
-        __UUPSUpgradeable_init();
-        __ReentrancyGuard_init();
 
         uniswapUniversalRouter = _uniswapUniversalRouter;
         permit2 = _permit2;
@@ -169,7 +158,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     /// @dev The actions must sum to 10,000 basis points (100%)
     /// @param _actions The actions to be executed
     /// @return distributionId The id of the distribution
-    function addDistribution(Action[] calldata _actions) external virtual returns (uint256 distributionId) {
+    function addDistribution(Action[] calldata _actions) external returns (uint256 distributionId) {
         // Sum up all basisPoints they must equal exactly 10,000 (100%)
         uint256 totalBasis;
         for (uint256 i = 0; i < _actions.length; ++i) {
@@ -206,14 +195,14 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     /// @notice Gets a distribution by id
     /// @param _distributionId The id of the distribution
     /// @return actions The actions of the distribution
-    function getDistributionById(uint256 _distributionId) external view virtual returns (Action[] memory) {
+    function getDistributionById(uint256 _distributionId) external view returns (Action[] memory) {
         return _getDistributionById(_distributionId);
     }
 
     /// @notice Proposes a pool config for a given pool
     /// @param _config The proposed pool config
     /// @dev The pool key must have currencies in the correct order (currency0 < currency1)
-    function proposePoolConfig(PoolConfig calldata _config) external virtual returns(uint256) {
+    function proposePoolConfig(PoolConfig calldata _config) external returns(uint256) {
         if (_config.poolKey.currency0 >= _config.poolKey.currency1) {
             revert CurrenciesNotInOrder();
         }
@@ -241,7 +230,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     /// @notice Gets the pool config proposal by id
     /// @param _proposalId The id of the pool config proposal
     /// @return config The pool config
-    function getPoolConfigProposal(uint256 _proposalId) external view virtual returns (PoolConfig memory) {
+    function getPoolConfigProposal(uint256 _proposalId) external view returns (PoolConfig memory) {
         PoolConfig memory config = poolProposals[_proposalId];
 
         return config;
@@ -249,7 +238,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
 
     /// @notice Sets the pool config for a given pool from a proposal
     /// @param _proposalId The id of the pool config proposal
-    function setPoolConfig(uint256 _proposalId) external virtual onlyOwner {
+    function setPoolConfig(uint256 _proposalId) external onlyOwner {
         PoolConfig memory config = poolProposals[_proposalId];
 
         bytes32 key = keccak256(abi.encodePacked(config.poolKey.currency0, config.poolKey.currency1));
@@ -272,7 +261,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     /// @param _tokenA The address of the first token
     /// @param _tokenB The address of the second token
     /// @return config The pool config
-    function getPoolConfig(address _tokenA, address _tokenB) external view virtual returns (PoolConfig memory) {
+    function getPoolConfig(address _tokenA, address _tokenB) external view returns (PoolConfig memory) {
         bytes32 key = _getSwapPairKey(_tokenA, _tokenB);
         return pools[key];
     }
@@ -280,14 +269,14 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     /// @notice Gets the pool config for a given pool
     /// @param _key The key of the pool
     /// @return config The pool config
-    function getPoolConfigByKey(bytes32 _key) external view virtual returns (PoolConfig memory) {
+    function getPoolConfigByKey(bytes32 _key) external view returns (PoolConfig memory) {
         return pools[_key];
     }
 
     /// @notice Sets the distribution id for a given name
     /// @param _distributionName The name of the distribution
     /// @param _distributionId The distribution id
-    function setDistributionId(bytes32 _distributionName, uint256 _distributionId) external virtual onlyOwner {
+    function setDistributionId(bytes32 _distributionName, uint256 _distributionId) external onlyOwner {
         distributionNameToId[_distributionName] = _distributionId;
     
         emit DistributionIdSet(_distributionName, _distributionId);
@@ -296,14 +285,14 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     /// @notice Gets the distribution id for a given name
     /// @param _distributionName The name of the distribution
     /// @return distributionId The distribution id
-    function getDistributionIdByName(bytes32 _distributionName) external virtual view returns(uint256) {
+    function getDistributionIdByName(bytes32 _distributionName) external view returns(uint256) {
         return distributionNameToId[_distributionName];
     }
 
     /// @notice Gets the distribution for a given name
     /// @param _distributionName The name of the distribution
     /// @return actions The actions of the distribution
-    function getDistributionByName(bytes32 _distributionName) external virtual view returns(Action[] memory) {
+    function getDistributionByName(bytes32 _distributionName) external view returns(Action[] memory) {
         uint256 distributionId = distributionNameToId[_distributionName];
         if (distributionId == 0) revert DistributionNotFound(distributionId);
 
@@ -316,7 +305,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     /// @param _paymentToken The address of the payment token
     /// @param _estimatedMaxSwaps The estimated maximum number of swaps
     /// @return swaps The swaps for the distribution
-    function getSwapsByDistributionName(bytes32 _distributionName, address _paymentToken, uint256 _estimatedMaxSwaps) external virtual view returns (Swap[] memory) {
+    function getSwapsByDistributionName(bytes32 _distributionName, address _paymentToken, uint256 _estimatedMaxSwaps) external view returns (Swap[] memory) {
         return getSwapsByDistributionId(distributionNameToId[_distributionName], _paymentToken, _estimatedMaxSwaps);
     }
 
@@ -326,7 +315,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     /// @param _paymentToken The address of the payment token
     /// @param _estimatedMaxSwaps The estimated maximum number of swaps
     /// @return swaps The swaps for the distribution
-    function getSwapsByDistributionId(uint256 _distributionId, address _paymentToken, uint256 _estimatedMaxSwaps) public virtual view returns (Swap[] memory) {
+    function getSwapsByDistributionId(uint256 _distributionId, address _paymentToken, uint256 _estimatedMaxSwaps) public view returns (Swap[] memory) {
         Swap[] memory swaps = new Swap[](_estimatedMaxSwaps);
        
         uint256 length = _buildSwapsForDistribution(_distributionId, _paymentToken, swaps, 0, weth);
@@ -352,7 +341,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
         uint256[] calldata _minAmountsOut,
         uint256 _deadline,
         bytes32 _meta
-    ) external payable virtual nonReentrant {
+    ) external payable nonReentrant {
         if (_requests.length == 0) {
             revert BatchIsEmpty();
         }
@@ -412,7 +401,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
         uint256[] calldata _minAmountsOut,
         uint256 _deadline,
         bytes32 _meta
-    ) external virtual nonReentrant {
+    ) external nonReentrant {
         if (_requests.length == 0) {
             revert BatchIsEmpty();
         }
@@ -458,7 +447,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     }
 
     /// @notice Fallback function to accept ETH deposits (e.g. from swaps of WETH conversions)
-    receive() external virtual payable {
+    receive() external payable {
     }
 
     function _execBatchDistribution(
@@ -466,7 +455,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
         BatchContext memory _ctx,
         DistributionRequest[] calldata _requests,
         uint256[] calldata _minAmountsOut
-    ) internal virtual {
+    ) internal {
         if (_dCtx.distributionId == 0) revert DistributionNotFound(_dCtx.distributionId);
 
         Action[] memory actions = _getDistributionById(_dCtx.distributionId);
@@ -496,7 +485,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
         uint256[] calldata _minAmountsOut,
         DistributionContext memory _dCtx,
         uint256 _actionTotalAmount
-    ) internal virtual {
+    ) internal {
 
         if (_action.actionType == ActionType.Burn) {
             if (_dCtx.paymentToken == address(0)) revert BurningETHNotAllowed();
@@ -657,7 +646,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
         address _sender,
         address _beneficiary,
         uint256 _amount
-    ) internal virtual pure returns (bytes memory) {
+    ) internal pure returns (bytes memory) {
        CallArgType[] memory callArgs = _decodeCallArgsWithCount(_callArgsPacked);
 
         bytes memory argsData; 
@@ -678,14 +667,14 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     /// @notice Gets a distribution by id
     /// @param _distributionId The id of the distribution
     /// @return actions The actions of the distribution
-    function _getDistributionById(uint256 _distributionId) internal view virtual returns (Action[] memory) {
+    function _getDistributionById(uint256 _distributionId) internal view returns (Action[] memory) {
         bytes memory blob = distributions[_distributionId];
         if (blob.length == 0) revert DistributionNotFound(_distributionId);
 
         return abi.decode(blob, (Action[]));
     }
 
-    function _decodeCallArgsWithCount(bytes12 packed) internal virtual pure returns (CallArgType[] memory args) {
+    function _decodeCallArgsWithCount(bytes12 packed) internal pure returns (CallArgType[] memory args) {
         uint8 count = uint8(packed[0]); // First byte is count
         if (count > 11) {
             revert TooManyCallArgs();
@@ -713,7 +702,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
         address _token,
         address _beneficiary,
         bytes32 _meta
-    ) internal virtual {
+    ) internal {
         if (_amount == 0) {
             revert ZeroAmountNotAllowed();
         }
@@ -745,7 +734,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
         uint256 _amount,
         address _recipient,
         address _weth
-    ) internal virtual {
+    ) internal {
         if (_amount == 0) {
             revert ZeroAmountNotAllowed();
         }
@@ -769,7 +758,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
         uint256 _amount,
         address _recipient,
         address _weth
-    ) internal virtual {
+    ) internal {
         if (_amount == 0) {
             revert ZeroAmountNotAllowed();
         }
@@ -785,9 +774,6 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
         }
     }
     
-    /// @notice Access control to upgrade the contract. Only the owner can upgrade
-    /// @param _newImplementation The address of the new implementation
-    function _authorizeUpgrade(address _newImplementation) internal virtual override onlyOwner {}
 
     /// @notice Gets the swap pair key for a given pair of tokens
     /// @param tokenA The address of the one of the tokens
@@ -795,7 +781,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     function _getSwapPairKey(
         address tokenA,
         address tokenB
-    ) internal virtual pure returns (bytes32) {
+    ) internal pure returns (bytes32) {
         if (tokenA < tokenB) {
             return keccak256(abi.encodePacked(tokenA, tokenB));
         } else {
@@ -811,7 +797,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
     /// @param _swapIndex The index of the current swap
     /// @param _weth The address of the WETH contract
     /// @return swapIndex The new index of the current swap
-    function _buildSwapsForDistribution(uint256 _distributionId, address _paymentToken, Swap[] memory _swaps, uint256 _swapIndex, address _weth) internal virtual view returns (uint256){
+    function _buildSwapsForDistribution(uint256 _distributionId, address _paymentToken, Swap[] memory _swaps, uint256 _swapIndex, address _weth) internal view returns (uint256){
         Action[] memory actions = _getDistributionById(_distributionId);
 
         for (uint256 i = 0; i < actions.length; ++i) {
@@ -837,7 +823,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
 
     /// @notice Validates the burn action
     /// @param _action The action to be validated
-    function _validateBurnAction(Action memory _action) internal virtual pure {
+    function _validateBurnAction(Action memory _action) internal pure {
         if (_action.token != address(0)) {
             revert InvalidActionDefinition();
         }
@@ -857,7 +843,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
 
     /// @notice Validates the send action
     /// @param _action The action to be validated
-    function _validateSendAction(Action memory _action) internal virtual pure {
+    function _validateSendAction(Action memory _action) internal pure {
         if (_action.token != address(0)) {
             revert InvalidActionDefinition();
         }
@@ -874,7 +860,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
 
     /// @notice Validates the buy action
     /// @param _action The action to be validated
-    function _validateBuyAction(Action memory _action) internal virtual pure {
+    function _validateBuyAction(Action memory _action) internal pure {
         if (_action.distributionId != 0 && _action.recipient != address(0)) {
             revert InvalidActionDefinition();
         }
@@ -888,7 +874,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, Reentranc
 
     /// @notice Validates the send and call action
     /// @param _action The action to be validated
-    function _validateSendAndCallAction(Action memory _action) internal virtual pure {
+    function _validateSendAndCallAction(Action memory _action) internal pure {
         if (_action.token != address(0)) {
             revert InvalidActionDefinition();
         }
