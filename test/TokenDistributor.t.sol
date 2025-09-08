@@ -44,7 +44,6 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
             distributorImpl,
             abi.encodeCall(TokenDistributor.initialize, (
                 owner,
-                IPositionManager(uniswapPositionManager),
                 IUniversalRouter(uniswapUniversalRouter),
                 IPermit2(permit2),
                 weth

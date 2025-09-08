@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -30,12 +30,6 @@ struct Action {
     ActionType actionType;
     address recipient;
     bytes12 callArgsPacked;
-}
-
-struct ActionArgs {
-    address beneficiary;
-    address recipientOnFailure;
-    address weth;
 }
 
 enum CallArgType {
@@ -66,6 +60,7 @@ struct DistributionContext {
     uint256 distributionId;
     uint256 amount;
     address paymentToken;
+    uint256 distributedSoFar;
 }
 
 interface IWETH {
@@ -75,7 +70,7 @@ interface IWETH {
 
 /// @title TokenDistributor
 /// @notice Contract for complex distributions and conversions of tokens 
-contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
+contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
     using Address for address payable;
 
@@ -129,7 +124,6 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     );
     event TokenTransferred(address indexed token, address indexed recipient, bytes32 indexed meta, address sender, uint256 amount);
     
-    IPositionManager public uniswapPositionManager;
     IUniversalRouter public uniswapUniversalRouter;
     IPermit2 public permit2;
     address public weth;
@@ -148,26 +142,24 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
 
     /// @notice Initializes the contract
     /// @param _owner The owner of the contract and the one who can upgrade it
-    /// @param _uniswapPositionManager The address of the position manager
     /// @param _uniswapUniversalRouter The address of the universal router
     /// @param _permit2 The address of the permit2 contract
     /// @param _weth The address of the WETH contract
     function initialize(
         address _owner,
-        IPositionManager _uniswapPositionManager,
         IUniversalRouter _uniswapUniversalRouter,
         IPermit2 _permit2,
         address _weth
     ) external initializer {
-        if (address(_uniswapPositionManager) == address(0) || address(_uniswapUniversalRouter) == address(0) || address(_permit2) == address(0) || _weth == address(0)) {
+        if (address(_uniswapUniversalRouter) == address(0) || address(_permit2) == address(0) || _weth == address(0)) {
             revert ZeroAddressNotAllowed();
         }
 
         __Ownable_init(_owner); // Checks for zero address
         __Ownable2Step_init();
         __UUPSUpgradeable_init();
+        __ReentrancyGuard_init();
 
-        uniswapPositionManager = _uniswapPositionManager;
         uniswapUniversalRouter = _uniswapUniversalRouter;
         permit2 = _permit2;
         weth = _weth;
@@ -360,7 +352,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256[] calldata _minAmountsOut,
         uint256 _deadline,
         bytes32 _meta
-    ) external payable virtual {
+    ) external payable virtual nonReentrant {
         if (_requests.length == 0) {
             revert BatchIsEmpty();
         }
@@ -389,7 +381,8 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         DistributionContext memory dCtx = DistributionContext({
             distributionId: distributionId,
             amount: totalAmount,
-            paymentToken: address(0)
+            paymentToken: address(0),
+            distributedSoFar: 0
         });
 
         _execBatchDistribution(dCtx, ctx, _requests, _minAmountsOut);
@@ -419,7 +412,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256[] calldata _minAmountsOut,
         uint256 _deadline,
         bytes32 _meta
-    ) external virtual {
+    ) external virtual nonReentrant {
         if (_requests.length == 0) {
             revert BatchIsEmpty();
         }
@@ -449,7 +442,8 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         DistributionContext memory dCtx = DistributionContext({
             distributionId: distributionId,
             amount: totalAmount,
-            paymentToken: _paymentToken
+            paymentToken: _paymentToken,
+            distributedSoFar: 0
         });
 
         _execBatchDistribution(dCtx, ctx, _requests, _minAmountsOut);
@@ -478,13 +472,20 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         Action[] memory actions = _getDistributionById(_dCtx.distributionId);
 
         for (uint256 i = 0; i < actions.length; ++i) {
+            uint256 actionTotalAmount = i == actions.length - 1
+                ? _dCtx.amount - _dCtx.distributedSoFar
+                : (_dCtx.amount * actions[i].basisPoints) / MAX_BASIS_POINTS;
+
             _execBatchAction(
                 actions[i],
                 _ctx,
                 _requests,
                 _minAmountsOut,
-                _dCtx
+                _dCtx,
+                actionTotalAmount
             );
+
+            _dCtx.distributedSoFar += actionTotalAmount;
         }
     }
 
@@ -493,14 +494,13 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         BatchContext memory _ctx,
         DistributionRequest[] calldata _requests,
         uint256[] calldata _minAmountsOut,
-        DistributionContext memory _dCtx
+        DistributionContext memory _dCtx,
+        uint256 _actionTotalAmount
     ) internal virtual {
-        uint256 _actionTotalAmount = (_dCtx.amount * _action.basisPoints) / MAX_BASIS_POINTS;
-        address _paymentToken = _dCtx.paymentToken;
 
         if (_action.actionType == ActionType.Burn) {
-            if (_paymentToken == address(0)) revert BurningETHNotAllowed();
-            IBurnable(_paymentToken).burn(_actionTotalAmount);
+            if (_dCtx.paymentToken == address(0)) revert BurningETHNotAllowed();
+            IBurnable(_dCtx.paymentToken).burn(_actionTotalAmount);
 
         } else if (_action.actionType == ActionType.Send) {
             _distributeProportionally(
@@ -508,19 +508,20 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
                 _requests,
                 _ctx.initialTotalAmount,
                 _actionTotalAmount,
-                _paymentToken,
+                _dCtx.paymentToken,
                 _ctx.meta
             );
 
         } else if (_action.actionType == ActionType.Buy) {
-            uint256 outAmount = _swap(_actionTotalAmount, _paymentToken, _action, _ctx, _minAmountsOut);
+            uint256 outAmount = _swap(_actionTotalAmount, _dCtx.paymentToken, _action, _ctx, _minAmountsOut);
 
             if (_action.distributionId != 0) {
                 _execBatchDistribution(
                     DistributionContext({
                         distributionId: _action.distributionId,
                         amount: outAmount,
-                        paymentToken: _action.token
+                        paymentToken: _action.token,
+                        distributedSoFar: 0
                     }),
                     _ctx, 
                     _requests,
@@ -552,7 +553,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
                     _action.selector, _action.callArgsPacked, msg.sender, _requests[i].beneficiary, userShare
                 );
 
-                if (_paymentToken == address(0)) {
+                if (_dCtx.paymentToken == address(0)) {
                     (bool ok, ) = target.call{value: userShare}(callData);
                     if (!ok) {
                         if (_requests[i].recipientOnFailure != address(0)) {
@@ -562,13 +563,14 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
                         }
                     }
                 } else {
-                    // This approval pattern is safe because it's per-call.
-                    IERC20(_paymentToken).approve(target, userShare);
+                    // Use SafeERC20 forceApprove for broad token compatibility.
+                    IERC20 token = IERC20(_dCtx.paymentToken);
+                    token.forceApprove(target, userShare);
                     (bool ok, ) = target.call(callData);
-                    IERC20(_paymentToken).approve(target, 0); // Reset approval
+                    token.forceApprove(target, 0); // Reset approval
                     if (!ok) {
                         if (_requests[i].recipientOnFailure != address(0)) {
-                            IERC20(_paymentToken).safeTransfer(_requests[i].recipientOnFailure, userShare);
+                            token.safeTransfer(_requests[i].recipientOnFailure, userShare);
                         } else {
                             revert CallFailed(target);
                         }
@@ -722,15 +724,17 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
             } else {
                 payable(_beneficiary).sendValue(_amount);
             }
+
+            emit TokenTransferred(_token, _recipient, _meta, msg.sender, _amount);
         } else {
             if (_recipient != address(0)) {
                 IERC20(_token).safeTransfer(_recipient, _amount);
+                emit TokenTransferred(_token, _recipient, _meta, msg.sender, _amount);
             } else {
                 IERC20(_token).safeTransfer(_beneficiary, _amount);
+                emit TokenTransferred(_token, _beneficiary, _meta, msg.sender, _amount);
             }
         }
-
-        emit TokenTransferred(_token, _recipient, _meta, msg.sender, _amount);
     }
 
     /// @notice Swaps ETH to WETH
