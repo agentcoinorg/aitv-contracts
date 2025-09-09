@@ -39,8 +39,14 @@ case "$NETWORK" in
     "base")
         RPC_URL="$BASE_RPC_URL"
         ;;
+    "sepolia")
+        RPC_URL="$ETHEREUM_SEPOLIA_RPC_URL"
+        ;;
     "base_sepolia")
         RPC_URL="$BASE_SEPOLIA_RPC_URL"
+        ;;
+    "ethereum")
+        RPC_URL="$ETHEREUM_RPC_URL"
         ;;
     *)
         echo "Unsupported network: $NETWORK"

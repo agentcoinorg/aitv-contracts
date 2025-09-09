@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -32,12 +32,6 @@ struct Action {
     bytes12 callArgsPacked;
 }
 
-struct ActionArgs {
-    address beneficiary;
-    address recipientOnFailure;
-    address weth;
-}
-
 enum CallArgType {
     Beneficiary,
     Sender,
@@ -49,6 +43,26 @@ struct Swap {
     address tokenOut;
 }
 
+struct DistributionRequest {
+    address beneficiary;
+    uint256 amount;
+    address recipientOnFailure;
+}
+
+struct BatchContext {
+    uint256 initialTotalAmount;
+    uint256 minAmountsOutIndex;
+    uint256 deadline;
+    bytes32 meta;
+}
+
+struct DistributionContext {
+    uint256 distributionId;
+    uint256 amount;
+    address paymentToken;
+    uint256 distributedSoFar;
+}
+
 interface IWETH {
     function deposit() external payable;
     function withdraw(uint256) external;
@@ -56,7 +70,7 @@ interface IWETH {
 
 /// @title TokenDistributor
 /// @notice Contract for complex distributions and conversions of tokens 
-contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
+contract TokenDistributor is Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Address for address payable;
 
@@ -76,7 +90,9 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     error DeadlinePassed();
     error MinAmountOutNotSet(uint256 index);
     error PoolConfigNotFound(address tokenIn, address tokenOut);
-    
+    error BatchTotalMismatch();
+    error BatchIsEmpty();
+
     event PoolConfigProposed(
         uint256 proposalId,
         bytes32 key,
@@ -102,14 +118,12 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     event Distribution(
         bytes32 indexed distributionName,
         address indexed sender,
-        address indexed beneficiary,
+        uint256 distributionId,
         uint256 amount,
-        address paymentToken,
-        address recipientOnFailure,
-        uint256 distributionId
+        address paymentToken
     );
-
-    IPositionManager public uniswapPositionManager;
+    event TokenTransferred(address indexed token, address indexed recipient, bytes32 indexed meta, address sender, uint256 amount);
+    
     IUniversalRouter public uniswapUniversalRouter;
     IPermit2 public permit2;
     address public weth;
@@ -119,34 +133,22 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     mapping(bytes32 key => PoolConfig config) internal pools;
     mapping(uint256 distributionId => bytes distribution) internal distributions;
     uint256 internal lastDistributionId;
-
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
+    
     /// @notice Initializes the contract
-    /// @param _owner The owner of the contract and the one who can upgrade it
-    /// @param _uniswapPositionManager The address of the position manager
+    /// @param _owner The owner of the contract
     /// @param _uniswapUniversalRouter The address of the universal router
     /// @param _permit2 The address of the permit2 contract
     /// @param _weth The address of the WETH contract
-    function initialize(
+    constructor(
         address _owner,
-        IPositionManager _uniswapPositionManager,
         IUniversalRouter _uniswapUniversalRouter,
         IPermit2 _permit2,
         address _weth
-    ) external initializer {
-        if (address(_uniswapPositionManager) == address(0) || address(_uniswapUniversalRouter) == address(0) || address(_permit2) == address(0) || _weth == address(0)) {
+    ) Ownable(_owner) {
+        if (address(_uniswapUniversalRouter) == address(0) || address(_permit2) == address(0) || _weth == address(0)) {
             revert ZeroAddressNotAllowed();
         }
 
-        __Ownable_init(_owner); // Checks for zero address
-        __Ownable2Step_init();
-        __UUPSUpgradeable_init();
-
-        uniswapPositionManager = _uniswapPositionManager;
         uniswapUniversalRouter = _uniswapUniversalRouter;
         permit2 = _permit2;
         weth = _weth;
@@ -156,7 +158,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @dev The actions must sum to 10,000 basis points (100%)
     /// @param _actions The actions to be executed
     /// @return distributionId The id of the distribution
-    function addDistribution(Action[] calldata _actions) external virtual returns (uint256 distributionId) {
+    function addDistribution(Action[] calldata _actions) external returns (uint256 distributionId) {
         // Sum up all basisPoints they must equal exactly 10,000 (100%)
         uint256 totalBasis;
         for (uint256 i = 0; i < _actions.length; ++i) {
@@ -193,17 +195,14 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @notice Gets a distribution by id
     /// @param _distributionId The id of the distribution
     /// @return actions The actions of the distribution
-    function getDistributionById(uint256 _distributionId) external view virtual returns (Action[] memory) {
-        bytes memory blob = distributions[_distributionId];
-        if (blob.length == 0) revert DistributionNotFound(_distributionId);
-
-        return abi.decode(blob, (Action[]));
+    function getDistributionById(uint256 _distributionId) external view returns (Action[] memory) {
+        return _getDistributionById(_distributionId);
     }
 
     /// @notice Proposes a pool config for a given pool
     /// @param _config The proposed pool config
     /// @dev The pool key must have currencies in the correct order (currency0 < currency1)
-    function proposePoolConfig(PoolConfig calldata _config) external virtual returns(uint256) {
+    function proposePoolConfig(PoolConfig calldata _config) external returns(uint256) {
         if (_config.poolKey.currency0 >= _config.poolKey.currency1) {
             revert CurrenciesNotInOrder();
         }
@@ -231,7 +230,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @notice Gets the pool config proposal by id
     /// @param _proposalId The id of the pool config proposal
     /// @return config The pool config
-    function getPoolConfigProposal(uint256 _proposalId) external view virtual returns (PoolConfig memory) {
+    function getPoolConfigProposal(uint256 _proposalId) external view returns (PoolConfig memory) {
         PoolConfig memory config = poolProposals[_proposalId];
 
         return config;
@@ -239,7 +238,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
 
     /// @notice Sets the pool config for a given pool from a proposal
     /// @param _proposalId The id of the pool config proposal
-    function setPoolConfig(uint256 _proposalId) external virtual onlyOwner {
+    function setPoolConfig(uint256 _proposalId) external onlyOwner {
         PoolConfig memory config = poolProposals[_proposalId];
 
         bytes32 key = keccak256(abi.encodePacked(config.poolKey.currency0, config.poolKey.currency1));
@@ -262,7 +261,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @param _tokenA The address of the first token
     /// @param _tokenB The address of the second token
     /// @return config The pool config
-    function getPoolConfig(address _tokenA, address _tokenB) external view virtual returns (PoolConfig memory) {
+    function getPoolConfig(address _tokenA, address _tokenB) external view returns (PoolConfig memory) {
         bytes32 key = _getSwapPairKey(_tokenA, _tokenB);
         return pools[key];
     }
@@ -270,14 +269,14 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @notice Gets the pool config for a given pool
     /// @param _key The key of the pool
     /// @return config The pool config
-    function getPoolConfigByKey(bytes32 _key) external view virtual returns (PoolConfig memory) {
+    function getPoolConfigByKey(bytes32 _key) external view returns (PoolConfig memory) {
         return pools[_key];
     }
 
     /// @notice Sets the distribution id for a given name
     /// @param _distributionName The name of the distribution
     /// @param _distributionId The distribution id
-    function setDistributionId(bytes32 _distributionName, uint256 _distributionId) external virtual onlyOwner {
+    function setDistributionId(bytes32 _distributionName, uint256 _distributionId) external onlyOwner {
         distributionNameToId[_distributionName] = _distributionId;
     
         emit DistributionIdSet(_distributionName, _distributionId);
@@ -286,19 +285,18 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @notice Gets the distribution id for a given name
     /// @param _distributionName The name of the distribution
     /// @return distributionId The distribution id
-    function getDistributionIdByName(bytes32 _distributionName) external virtual view returns(uint256) {
+    function getDistributionIdByName(bytes32 _distributionName) external view returns(uint256) {
         return distributionNameToId[_distributionName];
     }
 
     /// @notice Gets the distribution for a given name
     /// @param _distributionName The name of the distribution
     /// @return actions The actions of the distribution
-    function getDistributionByName(bytes32 _distributionName) external virtual view returns(Action[] memory) {
+    function getDistributionByName(bytes32 _distributionName) external view returns(Action[] memory) {
         uint256 distributionId = distributionNameToId[_distributionName];
         if (distributionId == 0) revert DistributionNotFound(distributionId);
 
-        bytes memory blob = distributions[distributionId];
-        return abi.decode(blob, (Action[]));
+        return _getDistributionById(distributionId);
     }
 
     /// @notice Gets the swaps for a given distri
@@ -307,7 +305,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @param _paymentToken The address of the payment token
     /// @param _estimatedMaxSwaps The estimated maximum number of swaps
     /// @return swaps The swaps for the distribution
-    function getSwapsByDistributionName(bytes32 _distributionName, address _paymentToken, uint256 _estimatedMaxSwaps) external virtual view returns (Swap[] memory) {
+    function getSwapsByDistributionName(bytes32 _distributionName, address _paymentToken, uint256 _estimatedMaxSwaps) external view returns (Swap[] memory) {
         return getSwapsByDistributionId(distributionNameToId[_distributionName], _paymentToken, _estimatedMaxSwaps);
     }
 
@@ -317,10 +315,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @param _paymentToken The address of the payment token
     /// @param _estimatedMaxSwaps The estimated maximum number of swaps
     /// @return swaps The swaps for the distribution
-    function getSwapsByDistributionId(uint256 _distributionId, address _paymentToken, uint256 _estimatedMaxSwaps) public virtual view returns (Swap[] memory) {
-        bytes memory blob = distributions[_distributionId];
-        if (blob.length == 0) revert DistributionNotFound(_distributionId);
-
+    function getSwapsByDistributionId(uint256 _distributionId, address _paymentToken, uint256 _estimatedMaxSwaps) public view returns (Swap[] memory) {
         Swap[] memory swaps = new Swap[](_estimatedMaxSwaps);
        
         uint256 length = _buildSwapsForDistribution(_distributionId, _paymentToken, swaps, 0, weth);
@@ -333,264 +328,316 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         return trimmedSwaps;
     }
 
-    /// @notice Distribute Ether
-    /// @dev If the _recipientOnFailure is address(0), the transaction will revert if a SendAndCall fails
-    /// @param _distributionName The distribution name
-    /// @param _beneficiary The address of the beneficiary
-    /// @param _recipientOnFailure The address of the recipient on failure
-    /// @param _minAmountsOut The minimum amounts out for the swaps
+    /// @notice Distributes Ether to multiple beneficiaries according to a single distribution definition
+    /// @dev This function aggregates all ETH, performs the necessary swaps on the total amount
+    /// and then distributes the final assets proportionally
+    /// @param _distributionName The distribution name to execute
+    /// @param _requests An array of batch requests, one for each beneficiary
+    /// @param _minAmountsOut The minimum amounts out for the aggregated swaps
     /// @param _deadline The deadline for the swaps
-    function distributeETH(
-        bytes32 _distributionName, 
-        address _beneficiary,
-        address _recipientOnFailure,
+    function batchDistributeETH(
+        bytes32 _distributionName,
+        DistributionRequest[] calldata _requests,
         uint256[] calldata _minAmountsOut,
-        uint256 _deadline
-    ) external virtual payable {
-        uint256 amount = msg.value;
-
-        if (amount == 0) {
-            revert ZeroAmountNotAllowed();
+        uint256 _deadline,
+        bytes32 _meta
+    ) external payable nonReentrant {
+        if (_requests.length == 0) {
+            revert BatchIsEmpty();
         }
-
         if (block.timestamp > _deadline) {
             revert DeadlinePassed();
         }
 
+        uint256 totalAmount = 0;
+        for (uint256 i = 0; i < _requests.length; ++i) {
+            totalAmount += _requests[i].amount;
+        }
+
+        if (totalAmount != msg.value) {
+            revert BatchTotalMismatch();
+        }
+
         uint256 distributionId = distributionNameToId[_distributionName];
-        
-        ActionArgs memory args = ActionArgs({
-            beneficiary: _beneficiary,
-            recipientOnFailure: _recipientOnFailure,
-            weth: weth
+
+        BatchContext memory ctx = BatchContext({
+            initialTotalAmount: totalAmount,
+            minAmountsOutIndex: 0,
+            deadline: _deadline,
+            meta: _meta
         });
 
-        _execDistribution(distributionId, args, amount, address(0), _minAmountsOut, 0, _deadline);
+        DistributionContext memory dCtx = DistributionContext({
+            distributionId: distributionId,
+            amount: totalAmount,
+            paymentToken: address(0),
+            distributedSoFar: 0
+        });
 
+        _execBatchDistribution(dCtx, ctx, _requests, _minAmountsOut);
+
+        // We can emit one event for the whole batch
         emit Distribution(
             _distributionName,
             msg.sender,
-            _beneficiary,
-            amount,
-            address(0),
-            _recipientOnFailure,
-            distributionId
+            distributionId,
+            totalAmount,
+            address(0)
         );
     }
 
-    /// @notice Distribute an ERC20 token
-    /// @dev If the _recipientOnFailure is address(0), the transaction will revert if a SendAndCall fails
-    /// @param _distributionName The distribution name
-    /// @param _beneficiary The address of the beneficiary
-    /// @param _amount The amount of tokens to be sent
-    /// @param _paymentToken The address of the payment token
-    /// @param _recipientOnFailure The address of the recipient on failure
-    /// @param _minAmountsOut The minimum amounts out for the swaps
+    /// @notice Distributes an ERC20 token to multiple beneficiaries according to a single distribution definition
+    /// @dev This function aggregates all tokens, performs the necessary swaps on the total amount,
+    /// and then distributes the final assets proportionally
+    /// @param _distributionName The distribution name to execute
+    /// @param _paymentToken The address of the ERC20 token being distributed
+    /// @param _requests An array of batch requests, one for each beneficiary
+    /// @param _minAmountsOut The minimum amounts out for the aggregated swaps
     /// @param _deadline The deadline for the swaps
-    function distributeERC20(
-        bytes32 _distributionName, 
-        address _beneficiary, 
-        uint256 _amount, 
+    function batchDistributeERC20(
+        bytes32 _distributionName,
         address _paymentToken,
-        address _recipientOnFailure,
+        DistributionRequest[] calldata _requests,
         uint256[] calldata _minAmountsOut,
-        uint256 _deadline
-    ) external virtual {
-        if (_amount == 0) {
-            revert ZeroAmountNotAllowed();
+        uint256 _deadline,
+        bytes32 _meta
+    ) external nonReentrant {
+        if (_requests.length == 0) {
+            revert BatchIsEmpty();
         }
-
         if (block.timestamp > _deadline) {
             revert DeadlinePassed();
         }
 
-        IERC20(_paymentToken).safeTransferFrom(msg.sender, address(this), _amount);
+        uint256 totalAmount = 0;
+        for (uint256 i = 0; i < _requests.length; ++i) {
+            totalAmount += _requests[i].amount;
+        }
+        if (totalAmount == 0) {
+            revert ZeroAmountNotAllowed();
+        }
 
+        IERC20(_paymentToken).safeTransferFrom(msg.sender, address(this), totalAmount);
+        
         uint256 distributionId = distributionNameToId[_distributionName];
 
-        ActionArgs memory args = ActionArgs({
-            beneficiary: _beneficiary,
-            recipientOnFailure: _recipientOnFailure,
-            weth: weth
+        BatchContext memory ctx = BatchContext({
+            initialTotalAmount: totalAmount,
+            minAmountsOutIndex: 0,
+            deadline: _deadline,
+            meta: _meta
         });
 
-        _execDistribution(distributionId, args, _amount, _paymentToken, _minAmountsOut, 0, _deadline);
+        DistributionContext memory dCtx = DistributionContext({
+            distributionId: distributionId,
+            amount: totalAmount,
+            paymentToken: _paymentToken,
+            distributedSoFar: 0
+        });
+
+        _execBatchDistribution(dCtx, ctx, _requests, _minAmountsOut);
 
         emit Distribution(
             _distributionName,
             msg.sender,
-            _beneficiary,
-            _amount,
-            _paymentToken,
-            _recipientOnFailure,
-            distributionId
+            distributionId,
+            totalAmount,
+            _paymentToken
         );
     }
 
     /// @notice Fallback function to accept ETH deposits (e.g. from swaps of WETH conversions)
-    receive() external virtual payable {
+    receive() external payable {
     }
 
-    /// @notice Executes a distribution
-    /// @dev If the args.recipientOnFailure is address(0), the transaction will revert if a SendAndCall fails
-    /// @param _distributionId The id of the distribution
-    /// @param _args The action arguments
-    /// @param _amount The amount of tokens to be sent
-    /// @param _paymentToken The address of the payment token
-    /// @param _minAmountsOut The minimum amounts out for the swaps
-    /// @param _minAmountsOutIndex The index of the minimum amounts out
-    /// @param _deadline The deadline for the swaps
-    /// @return minAmountsOutIndex The new index of the minimum amounts out
-    function _execDistribution(
-        uint256 _distributionId,
-        ActionArgs memory _args,
-        uint256 _amount,
-        address _paymentToken,
-        uint256[] calldata _minAmountsOut,
-        uint256 _minAmountsOutIndex,
-        uint256 _deadline
-    ) internal virtual returns (uint256) {
-        if (_distributionId == 0) {
-            revert DistributionNotFound(_distributionId);
-        }
+    function _execBatchDistribution(
+        DistributionContext memory _dCtx,
+        BatchContext memory _ctx,
+        DistributionRequest[] calldata _requests,
+        uint256[] calldata _minAmountsOut
+    ) internal {
+        if (_dCtx.distributionId == 0) revert DistributionNotFound(_dCtx.distributionId);
 
-        bytes memory blob = distributions[_distributionId];
-        if (blob.length == 0) {
-            revert DistributionNotFound(_distributionId);
-        }
-
-        Action[] memory actions = abi.decode(blob, (Action[]));
+        Action[] memory actions = _getDistributionById(_dCtx.distributionId);
 
         for (uint256 i = 0; i < actions.length; ++i) {
-            _minAmountsOutIndex = _execAction(
-                actions[i],
-                _args,
-               (_amount * actions[i].basisPoints) / MAX_BASIS_POINTS,
-                _paymentToken,
-                _minAmountsOut,
-                _minAmountsOutIndex,
-                _deadline
-            );
-        }
+            uint256 actionTotalAmount = i == actions.length - 1
+                ? _dCtx.amount - _dCtx.distributedSoFar
+                : (_dCtx.amount * actions[i].basisPoints) / MAX_BASIS_POINTS;
 
-        return _minAmountsOutIndex;
+            _execBatchAction(
+                actions[i],
+                _ctx,
+                _requests,
+                _minAmountsOut,
+                _dCtx,
+                actionTotalAmount
+            );
+
+            _dCtx.distributedSoFar += actionTotalAmount;
+        }
     }
 
-    /// @notice Executes an action
-    /// @dev If the _args.recipientOnFailure is address(0), the transaction will revert if a SendAndCall fails
-    /// @param _action The action to be executed
-    /// @param _args The action arguments
-    /// @param _amount The amount of tokens to be sent
-    /// @param _paymentToken The address of the payment token
-    /// @param _minAmountsOut The minimum amounts out for the swaps
-    /// @param _minAmountsOutIndex The index of the minimum amounts out
-    /// @param _deadline The deadline for the swaps
-    /// @return minAmountsOutIndex The new index of the minimum amounts out
-    function _execAction(
+    function _execBatchAction(
         Action memory _action,
-        ActionArgs memory _args,
-        uint256 _amount,
-        address _paymentToken,
+        BatchContext memory _ctx,
+        DistributionRequest[] calldata _requests,
         uint256[] calldata _minAmountsOut,
-        uint256 _minAmountsOutIndex,
-        uint256 _deadline
-    ) internal virtual returns (uint256) {
+        DistributionContext memory _dCtx,
+        uint256 _actionTotalAmount
+    ) internal {
+
         if (_action.actionType == ActionType.Burn) {
-            if (_paymentToken== address(0)) {
-                revert BurningETHNotAllowed();
-            }
-            IBurnable(_paymentToken).burn(_amount);
+            if (_dCtx.paymentToken == address(0)) revert BurningETHNotAllowed();
+            IBurnable(_dCtx.paymentToken).burn(_actionTotalAmount);
+
         } else if (_action.actionType == ActionType.Send) {
-            _send(
+            _distributeProportionally(
                 _action.recipient,
-                _amount,
-                _paymentToken,
-                _args.beneficiary
+                _requests,
+                _ctx.initialTotalAmount,
+                _actionTotalAmount,
+                _dCtx.paymentToken,
+                _ctx.meta
             );
+
         } else if (_action.actionType == ActionType.Buy) {
-            uint256 out;
-
-            if (_paymentToken == address(0) && _action.token == _args.weth) {
-                _swapETHToWETH(_amount, address(this), _args.weth);
-                out = _amount;
-            } else if (_paymentToken == weth && _action.token == address(0)) {
-                _swapWETHToETH(_amount, address(this), _args.weth);
-                out = _amount;
-            } else {
-                PoolConfig memory poolConfig = pools[_getSwapPairKey(_paymentToken, _action.token)];
-
-                if (poolConfig.poolKey.currency0 == Currency.wrap(address(0)) && poolConfig.poolKey.currency1 == Currency.wrap(address(0))) {
-                    revert PoolConfigNotFound(_paymentToken, _action.token);
-                }
-
-                if (_minAmountsOutIndex >= _minAmountsOut.length || _minAmountsOut[_minAmountsOutIndex] == 0) {
-                    revert MinAmountOutNotSet(_minAmountsOutIndex);
-                }
-
-                out = UniSwapper.swapExactIn(
-                    address(this),
-                    _args.beneficiary,
-                    poolConfig,
-                    _paymentToken,
-                    _action.token,
-                    _amount,
-                    uint128(_minAmountsOut[_minAmountsOutIndex]),
-                    _deadline,
-                    uniswapUniversalRouter,
-                    permit2
-                );
-                ++_minAmountsOutIndex;
-            }
+            uint256 outAmount = _swap(_actionTotalAmount, _dCtx.paymentToken, _action, _ctx, _minAmountsOut);
 
             if (_action.distributionId != 0) {
-                _minAmountsOutIndex = _execDistribution(_action.distributionId, _args, out, _action.token, _minAmountsOut, _minAmountsOutIndex, _deadline);
+                _execBatchDistribution(
+                    DistributionContext({
+                        distributionId: _action.distributionId,
+                        amount: outAmount,
+                        paymentToken: _action.token,
+                        distributedSoFar: 0
+                    }),
+                    _ctx, 
+                    _requests,
+                    _minAmountsOut
+                );
             } else {
-                _send(
+                _distributeProportionally(
                     _action.recipient,
-                    out,
+                    _requests,
+                    _ctx.initialTotalAmount,
+                    outAmount,
                     _action.token,
-                    _args.beneficiary
+                    _ctx.meta
                 );
             }
-        } else if (
-            _action.actionType == ActionType.SendAndCall
-        ) {
-            address target = _action.recipient;
-            bool isEth = (_paymentToken == address(0));
-
-            bytes memory callData = _encodeFunctionCall(
-                _action.selector,
-                _action.callArgsPacked,
-                msg.sender,
-                _args.beneficiary,
-                _amount
-            );
-
-            if (isEth) {
-                (bool ok, ) = target.call{value: _amount}(callData);
-                if (!ok) {
-                    if (_args.recipientOnFailure != address(0)) {
-                        payable(_args.recipientOnFailure).sendValue(_amount);
-                    } else {
-                        revert CallFailed(target);
-                    }
+        } else if (_action.actionType == ActionType.SendAndCall) {
+            uint256 distributedSoFar = 0;
+            for (uint256 i = 0; i < _requests.length; ++i) {
+                uint256 userShare;
+                if (i == _requests.length - 1) {
+                    userShare = _actionTotalAmount - distributedSoFar;
+                } else {
+                    userShare = (_actionTotalAmount * _requests[i].amount) / _ctx.initialTotalAmount;
+                    distributedSoFar += userShare;
                 }
-            } else {
-                IERC20(_paymentToken).approve(target, _amount);
-                (bool ok, ) = target.call(callData);
-                IERC20(_paymentToken).approve(target, 0); // Reset approval in case some of it was not spent or the call failed
 
-                if (!ok) {
-                    if (_args.recipientOnFailure != address(0)) {
-                        IERC20(_paymentToken).safeTransfer(_args.recipientOnFailure, _amount);
-                    } else {
-                        revert CallFailed(target);
+                address target = _action.recipient;
+                bytes memory callData = _encodeFunctionCall(
+                    _action.selector, _action.callArgsPacked, msg.sender, _requests[i].beneficiary, userShare
+                );
+
+                if (_dCtx.paymentToken == address(0)) {
+                    (bool ok, ) = target.call{value: userShare}(callData);
+                    if (!ok) {
+                        if (_requests[i].recipientOnFailure != address(0)) {
+                            payable(_requests[i].recipientOnFailure).sendValue(userShare);
+                        } else {
+                            revert CallFailed(target);
+                        }
+                    }
+                } else {
+                    // Use SafeERC20 forceApprove for broad token compatibility.
+                    IERC20 token = IERC20(_dCtx.paymentToken);
+                    token.forceApprove(target, userShare);
+                    (bool ok, ) = target.call(callData);
+                    token.forceApprove(target, 0); // Reset approval
+                    if (!ok) {
+                        if (_requests[i].recipientOnFailure != address(0)) {
+                            token.safeTransfer(_requests[i].recipientOnFailure, userShare);
+                        } else {
+                            revert CallFailed(target);
+                        }
                     }
                 }
             }
         }
+    }
+    
+    function _swap(
+        uint256 _actionTotalAmount,
+        address _paymentToken,
+        Action memory _action,
+        BatchContext memory _ctx,
+        uint256[] calldata _minAmountsOut
+    ) internal returns (uint256) {
+        uint256 outAmount;
 
-        return _minAmountsOutIndex;
+        if (_paymentToken == address(0) && _action.token == weth) {
+            _swapETHToWETH(_actionTotalAmount, address(this), weth);
+            outAmount = _actionTotalAmount;
+        } else if (_paymentToken == weth && _action.token == address(0)) {
+            _swapWETHToETH(_actionTotalAmount, address(this), weth);
+            outAmount = _actionTotalAmount;
+        } else {
+            PoolConfig memory poolConfig = pools[_getSwapPairKey(_paymentToken, _action.token)];
+            if (poolConfig.poolKey.currency0 == Currency.wrap(address(0)) && poolConfig.poolKey.currency1 == Currency.wrap(address(0))) {
+                revert PoolConfigNotFound(_paymentToken, _action.token);
+            }
+            if (_ctx.minAmountsOutIndex >= _minAmountsOut.length || _minAmountsOut[_ctx.minAmountsOutIndex] == 0) {
+                revert MinAmountOutNotSet(_ctx.minAmountsOutIndex);
+            }
+
+            outAmount = UniSwapper.swapExactIn(
+                address(this),
+                owner(),
+                poolConfig,
+                _paymentToken,
+                _action.token,
+                _actionTotalAmount,
+                uint128(_minAmountsOut[_ctx.minAmountsOutIndex]),
+                _ctx.deadline,
+                uniswapUniversalRouter,
+                permit2
+            );
+            ++_ctx.minAmountsOutIndex; 
+        }
+
+        return outAmount;
+    }
+
+    /// @notice Helper to distribute a total amount proportionally among beneficiaries.
+    /// @dev Handles dust by giving the remainder to the last beneficiary.
+    function _distributeProportionally(
+        address _fixedRecipient,
+        DistributionRequest[] calldata _requests,
+        uint256 _initialTotalAmount,
+        uint256 _amountToDistribute,
+        address _token,
+        bytes32 _meta
+    ) internal {
+        uint256 distributedSoFar = 0;
+        for (uint256 i = 0; i < _requests.length; ++i) {
+            uint256 userShare;
+            if (i == _requests.length - 1) {
+                // Last user gets the remainder to prevent dust loss
+                userShare = _amountToDistribute - distributedSoFar;
+            } else {
+                userShare = (_amountToDistribute * _requests[i].amount) / _initialTotalAmount;
+                distributedSoFar += userShare;
+            }
+
+            if (userShare > 0) {
+                 // If a fixed recipient is set, send there. Otherwise, send to the request's beneficiary.
+                address finalRecipient = _fixedRecipient == address(0) ? _requests[i].beneficiary : _fixedRecipient;
+                _send(finalRecipient, userShare, _token, _requests[i].beneficiary, _meta);
+            }
+        }
     }
 
     function _encodeFunctionCall(
@@ -599,7 +646,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         address _sender,
         address _beneficiary,
         uint256 _amount
-    ) internal virtual pure returns (bytes memory) {
+    ) internal pure returns (bytes memory) {
        CallArgType[] memory callArgs = _decodeCallArgsWithCount(_callArgsPacked);
 
         bytes memory argsData; 
@@ -617,7 +664,17 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         return bytes.concat(abi.encodeWithSelector(_selector), argsData);
     }
 
-    function _decodeCallArgsWithCount(bytes12 packed) internal virtual pure returns (CallArgType[] memory args) {
+    /// @notice Gets a distribution by id
+    /// @param _distributionId The id of the distribution
+    /// @return actions The actions of the distribution
+    function _getDistributionById(uint256 _distributionId) internal view returns (Action[] memory) {
+        bytes memory blob = distributions[_distributionId];
+        if (blob.length == 0) revert DistributionNotFound(_distributionId);
+
+        return abi.decode(blob, (Action[]));
+    }
+
+    function _decodeCallArgsWithCount(bytes12 packed) internal pure returns (CallArgType[] memory args) {
         uint8 count = uint8(packed[0]); // First byte is count
         if (count > 11) {
             revert TooManyCallArgs();
@@ -643,8 +700,9 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         address _recipient,
         uint256 _amount,
         address _token,
-        address _beneficiary
-    ) internal virtual {
+        address _beneficiary,
+        bytes32 _meta
+    ) internal {
         if (_amount == 0) {
             revert ZeroAmountNotAllowed();
         }
@@ -655,11 +713,15 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
             } else {
                 payable(_beneficiary).sendValue(_amount);
             }
+
+            emit TokenTransferred(_token, _recipient, _meta, msg.sender, _amount);
         } else {
             if (_recipient != address(0)) {
                 IERC20(_token).safeTransfer(_recipient, _amount);
+                emit TokenTransferred(_token, _recipient, _meta, msg.sender, _amount);
             } else {
                 IERC20(_token).safeTransfer(_beneficiary, _amount);
+                emit TokenTransferred(_token, _beneficiary, _meta, msg.sender, _amount);
             }
         }
     }
@@ -672,7 +734,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 _amount,
         address _recipient,
         address _weth
-    ) internal virtual {
+    ) internal {
         if (_amount == 0) {
             revert ZeroAmountNotAllowed();
         }
@@ -696,7 +758,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         uint256 _amount,
         address _recipient,
         address _weth
-    ) internal virtual {
+    ) internal {
         if (_amount == 0) {
             revert ZeroAmountNotAllowed();
         }
@@ -712,9 +774,6 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
         }
     }
     
-    /// @notice Access control to upgrade the contract. Only the owner can upgrade
-    /// @param _newImplementation The address of the new implementation
-    function _authorizeUpgrade(address _newImplementation) internal virtual override onlyOwner {}
 
     /// @notice Gets the swap pair key for a given pair of tokens
     /// @param tokenA The address of the one of the tokens
@@ -722,7 +781,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     function _getSwapPairKey(
         address tokenA,
         address tokenB
-    ) internal virtual pure returns (bytes32) {
+    ) internal pure returns (bytes32) {
         if (tokenA < tokenB) {
             return keccak256(abi.encodePacked(tokenA, tokenB));
         } else {
@@ -738,13 +797,8 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
     /// @param _swapIndex The index of the current swap
     /// @param _weth The address of the WETH contract
     /// @return swapIndex The new index of the current swap
-    function _buildSwapsForDistribution(uint256 _distributionId, address _paymentToken, Swap[] memory _swaps, uint256 _swapIndex, address _weth) internal virtual view returns (uint256){
-        bytes memory blob = distributions[_distributionId];
-        if (blob.length == 0) {
-            revert DistributionNotFound(_distributionId);
-        }
-
-        Action[] memory actions = abi.decode(blob, (Action[]));
+    function _buildSwapsForDistribution(uint256 _distributionId, address _paymentToken, Swap[] memory _swaps, uint256 _swapIndex, address _weth) internal view returns (uint256){
+        Action[] memory actions = _getDistributionById(_distributionId);
 
         for (uint256 i = 0; i < actions.length; ++i) {
             Action memory action = actions[i];
@@ -769,7 +823,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
 
     /// @notice Validates the burn action
     /// @param _action The action to be validated
-    function _validateBurnAction(Action memory _action) internal virtual pure {
+    function _validateBurnAction(Action memory _action) internal pure {
         if (_action.token != address(0)) {
             revert InvalidActionDefinition();
         }
@@ -789,7 +843,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
 
     /// @notice Validates the send action
     /// @param _action The action to be validated
-    function _validateSendAction(Action memory _action) internal virtual pure {
+    function _validateSendAction(Action memory _action) internal pure {
         if (_action.token != address(0)) {
             revert InvalidActionDefinition();
         }
@@ -806,7 +860,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
 
     /// @notice Validates the buy action
     /// @param _action The action to be validated
-    function _validateBuyAction(Action memory _action) internal virtual pure {
+    function _validateBuyAction(Action memory _action) internal pure {
         if (_action.distributionId != 0 && _action.recipient != address(0)) {
             revert InvalidActionDefinition();
         }
@@ -820,7 +874,7 @@ contract TokenDistributor is Ownable2StepUpgradeable, UUPSUpgradeable {
 
     /// @notice Validates the send and call action
     /// @param _action The action to be validated
-    function _validateSendAndCallAction(Action memory _action) internal virtual pure {
+    function _validateSendAndCallAction(Action memory _action) internal pure {
         if (_action.token != address(0)) {
             revert InvalidActionDefinition();
         }
