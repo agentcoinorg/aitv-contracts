@@ -71,8 +71,7 @@ FORGE_CMD="forge script ./script/${SCRIPT_NAME}.s.sol \
 if [[ "$TEST_MODE" == false ]]; then
     FORGE_CMD="$FORGE_CMD --broadcast \
         --verify \
-        --verifier-url https://api.basescan.org/api \
-        --etherscan-api-key \"$BASESCAN_API_KEY\""
+        --etherscan-api-key \"$ETHERSCAN_API_KEY\""
 else
     echo "Running in test mode (no broadcast, no verify)."
 fi
