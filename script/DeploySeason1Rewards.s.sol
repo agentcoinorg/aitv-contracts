@@ -15,6 +15,8 @@ contract DeploySeason1RewardsScript is Script {
 
         vm.startBroadcast();
         AITVSeason1RewardsBatchDeployer deployer = new AITVSeason1RewardsBatchDeployer(
+            "AITV Season 1 Badges",
+            "AITVS1B",
             baseURI,
             recipient,
             owner,
@@ -36,7 +38,7 @@ contract DeploySeason1RewardsScript is Script {
 
         AITVERC721Base nft = deployer.nft();
         console.log("Batch deployer deployed at %s", address(deployer));
-        console.log("AITV Season 1 Rewards deployed at %s", address(nft));
+        console.log("AITV Season 1 Badges deployed at %s", address(nft));
         console.log("Minted %s tokens to %s across multiple transactions", totalMinted, recipient);
     }
 

@@ -74,9 +74,9 @@ contract AgentLaunchPoolReclaimETHTest is AgentFactoryTestUtils {
     }
 
     function test_multipleUsersCanReclaimDeposits() public { 
-        address user1 = makeAddr("user1");
-        address user2 = makeAddr("user2");
-        address user3 = makeAddr("user3");
+        address user1 = makeAddr("userA");
+        address user2 = makeAddr("userB");
+        address user3 = makeAddr("userC");
         vm.deal(user1, 100 ether);
         vm.deal(user2, 100 ether);
         vm.deal(user3, 100 ether);

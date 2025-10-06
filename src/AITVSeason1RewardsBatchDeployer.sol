@@ -16,6 +16,8 @@ contract AITVSeason1RewardsBatchDeployer {
     event Finalized(address indexed newOwner);
 
     constructor(
+        string memory _name,
+        string memory _symbol,
         string memory baseTokenURI,
         address _recipient,
         address _finalOwner,
@@ -26,7 +28,7 @@ contract AITVSeason1RewardsBatchDeployer {
         require(_totalToMint > 0, "total = 0");
 
         // Deploy the NFT with this contract as the temporary owner so we can batch mint
-        nft = new AITVERC721Base(address(this), "Test Season 1 Rewards", "S1R", baseTokenURI);
+        nft = new AITVERC721Base(address(this), _name, _symbol, baseTokenURI);
 
         recipient = _recipient;
         finalOwner = _finalOwner;

@@ -9,6 +9,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /// @notice Base ERC721 using URI storage
 contract AITVERC721Base is ERC721URIStorage, Ownable {
     string internal baseTokenURI;
+    uint256 public totalSupply;
+    bool public mintingDisabled;
 
     constructor(
         address _owner,
@@ -23,9 +25,23 @@ contract AITVERC721Base is ERC721URIStorage, Ownable {
         return baseTokenURI;
     }
 
-    function mintWithURI(address to, uint256 tokenId, string memory tokenUri) external onlyOwner {
-        _safeMint(to, tokenId);
-        _setTokenURI(tokenId, tokenUri);
+    function mintWithURI(address _to, uint256 _tokenId, string memory _tokenUri) external onlyOwner {
+        require(!mintingDisabled, "minting disabled");
+        _safeMint(_to, _tokenId);
+        _setTokenURI(_tokenId, _tokenUri);
+        unchecked {
+            totalSupply += 1;
+        }
+    }
+
+    function setBaseTokenURI(string memory _newBaseTokenURI) external onlyOwner {
+        baseTokenURI = _newBaseTokenURI;
+        emit BatchMetadataUpdate(0, type(uint256).max);
+    }
+
+    function disableMinting() external onlyOwner {
+        require(!mintingDisabled, "already disabled");
+        mintingDisabled = true;
     }
 }
 
