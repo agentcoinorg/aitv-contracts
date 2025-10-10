@@ -19,18 +19,43 @@ for arg in "$@"; do
     fi
 done
 
-# Load environment variables safely (handles quotes, spaces, and comments)
+# Load environment variables robustly (handles spaces around =, quotes, and comments)
 set -a
-while IFS='=' read -r key value; do
-    # Ignore commented lines and empty lines
-    [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
+while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+    # Trim leading/trailing whitespace
+    line="${raw_line#${raw_line%%[!$'\t\r\n ']*}}"
+    line="${line%${line##*[!$'\t\r\n ']} }"
 
-    # Remove surrounding quotes if they exist
-    value="${value%\"}"
-    value="${value#\"}"
+    # Skip empty or commented lines
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
 
-    # Export the cleaned variable
-    export "$key=$value"
+    # Remove optional 'export' prefix
+    if [[ "$line" =~ ^[[:space:]]*export[[:space:]]+(.+)$ ]]; then
+        line="${BASH_REMATCH[1]}"
+    fi
+
+    # Parse KEY=VALUE with optional spaces around '='
+    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+        key="${BASH_REMATCH[1]}"
+        value="${BASH_REMATCH[2]}"
+
+        # Trim surrounding whitespace in value
+        value="${value#${value%%[!$'\t\r\n ']*}}"
+        value="${value%${value##*[!$'\t\r\n ']} }"
+
+        # If value is unquoted, strip trailing inline comments
+        if [[ "$value" != \"* && "$value" != \'* ]]; then
+            value="${value%%#*}"
+            value="${value%${value##*[!$'\t\r\n ']} }"
+        fi
+
+        # Remove surrounding matching quotes if present
+        if [[ ( "$value" == \"*\" && "$value" == *\" ) || ( "$value" == \'*\' && "$value" == *\' ) ]]; then
+            value="${value:1:-1}"
+        fi
+
+        export "$key=$value"
+    fi
 done < .env
 set +a
 

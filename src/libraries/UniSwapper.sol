@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Commands} from "@uniswap/universal-router/src/libraries/Commands.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
@@ -13,6 +14,7 @@ import {IV4Router} from "@uniswap/v4-periphery/src/interfaces/IV4Router.sol";
 import {PoolConfig} from "../types/PoolConfig.sol";
 
 library UniSwapper {
+    using SafeERC20 for IERC20;
     error InvalidTokenInOut();
 
     /// @notice Do an “exact-in” swap on Uniswap V2, V3 or V4 (via Universal Router)
@@ -43,7 +45,7 @@ library UniSwapper {
 
         if (_tokenIn != address(0)) {
             if (IERC20(_tokenIn).allowance(address(this), address(_permit2)) < _amountIn) {
-                IERC20(_tokenIn).approve(address(_permit2), type(uint256).max);
+                IERC20(_tokenIn).forceApprove(address(_permit2), type(uint256).max);
             }
 
             IPermit2(_permit2).approve(_tokenIn, address(_universalRouter), uint160(_amountIn), uint48(_deadline) + 1); // +1 because expiration is "The timestamp at which the approval is no longer valid"
