@@ -35,8 +35,10 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
     address usdc = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address usdt = 0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2;
     address ussi = 0x3a46ed8FCeb6eF1ADA2E4600A522AE7e24D2Ed18;
-    address aerodromeRouter = vm.envAddress("AERODROME_ROUTER");
-    address pancakeSmartRouter = vm.envAddress("PANCAKE_SMART_ROUTER");
+    address aerodromeRouter = vm.envOr("AERODROME_ROUTER", address(0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43));
+    address pancakeSmartRouter = vm.envOr("PANCAKE_SMART_ROUTER", address(0x678Aa4bF4E210cf2166753e054d5b7c31cc7fa86));
+    address pancakeSmartRouterBsc = vm.envOr("PANCAKE_SMART_ROUTER_BSC", address(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4));
+
 
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
@@ -1299,7 +1301,6 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         address WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
         address USDT = 0x55d398326f99059fF775485246999027B3197955;
         address PUBLIC = 0x87aa6aEb62ff128aAA96E275d7B24cd12a72ABa1;
-        address pancakeRouter = vm.envAddress("PANCAKE_SMART_ROUTER_BSC");
         address permit2Addr = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
         // Re-instantiate distributor for BSC context (only Pancake will be used)
@@ -1309,7 +1310,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
             IPermit2(permit2Addr),
             WBNB,
             IAerodromeRouter(address(0x1)),
-            IPancakeSmartRouter(pancakeRouter)
+            IPancakeSmartRouter(pancakeSmartRouterBsc)
         );
 
         // Configure Pancake route for USDT <-> PUBLIC via v3 (fee=100)
@@ -1337,11 +1338,11 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         assertEq(IERC20(WBNB).balanceOf(user), amountWBNB);
 
         // Swap WBNB -> USDT using Pancake Smart Router (v2-style path)
-        IERC20(WBNB).approve(pancakeRouter, amountWBNB);
+        IERC20(WBNB).approve(pancakeSmartRouterBsc, amountWBNB);
         address[] memory path = new address[](2);
         path[0] = WBNB;
         path[1] = USDT;
-        uint256 usdtAmount = IPancakeSmartRouter(pancakeRouter).swapExactTokensForTokens(
+        uint256 usdtAmount = IPancakeSmartRouter(pancakeSmartRouterBsc).swapExactTokensForTokens(
             amountWBNB,
             0,
             path,
