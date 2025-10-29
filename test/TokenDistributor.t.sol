@@ -20,6 +20,8 @@ import {UniswapVersion} from "../src/types/UniswapVersion.sol";
 import {CallArgType, Swap, DistributionRequest} from "../src/TokenDistributor.sol";
 import {PoolConfig} from "../src/types/PoolConfig.sol";
 import {DistributionBuilder} from "../src/DistributionBuilder.sol";
+import {AerodromeProposal} from "../src/types/AerodromeConfig.sol";
+import {IAerodromeRouter} from "../src/interfaces/IAerodromeRouter.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -31,6 +33,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
     address usdc = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address usdt = 0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2;
     address ussi = 0x3a46ed8FCeb6eF1ADA2E4600A522AE7e24D2Ed18;
+    address aerodromeRouter = vm.envAddress("AERODROME_ROUTER");
 
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
@@ -41,7 +44,8 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
             owner,
             IUniversalRouter(uniswapUniversalRouter),
             IPermit2(permit2),
-            weth
+            weth,
+            IAerodromeRouter(aerodromeRouter)
         );
     }
 
@@ -984,6 +988,8 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         _swapETHToUSDCExactOut(user, amount);
 
+        assertEq(IERC20(usdc).balanceOf(user), amount);
+
         vm.startPrank(user);
 
         IERC20(usdc).approve(address(distributor), amount);
@@ -1150,6 +1156,8 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         _swapETHToUSDCExactOut(user, amount);
 
+        assertEq(IERC20(usdc).balanceOf(user), amount);
+
         vm.startPrank(user);
 
         IERC20(usdc).approve(address(distributor), amount);
@@ -1205,6 +1213,8 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
 
         _swapETHToUSDCExactOut(user, amount);
 
+        assertEq(IERC20(usdc).balanceOf(user), amount);
+
         vm.startPrank(user);
 
         IERC20(usdc).approve(address(distributor), amount);
@@ -1220,6 +1230,69 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         assertEq(address(distributor).balance, 0);
         assertEq(IERC20(usdc).balanceOf(address(distributor)), 0);
         assertEq(IERC20(usdt).balanceOf(address(distributor)), 0);
+    }
+
+    function test_canSwapUSDCToAIPWithAerodrome() public {
+        address aip = 0x02D4f76656C2B4f58430e91f8ac74896c9281Cb9;
+        address recipient = makeAddr("recipient");
+
+        vm.startPrank(owner);
+
+        // Configure Aerodrome route for AIP -> WETH (volatile pool)
+        uint256 aeroCfgId = distributor.proposeAerodromeConfig(
+            AerodromeProposal({
+                tokenA: aip,
+                tokenB: weth,
+                stable: false
+            })
+        );
+        distributor.setAerodromeConfig(aeroCfgId);
+
+        _addConfig(
+            PoolConfig({
+                poolKey: PoolKey({
+                    currency0: Currency.wrap(weth),
+                    currency1: Currency.wrap(usdc),
+                    fee: 500,
+                    tickSpacing: 0,
+                    hooks: IHooks(address(0))
+                }),
+                version: UniswapVersion.V3
+            })
+        );
+
+        uint256 distId = distributor.addDistribution(
+            new DistributionBuilder()
+                .buy(
+                    10000,
+                    weth,
+                    distributor.addDistribution(
+                        new DistributionBuilder()
+                            .buy(10000, aip, address(0))
+                            .build()
+                    )
+                )
+                .build()
+        );
+        distributor.setDistributionId("test-aero", distId);
+
+        vm.stopPrank();
+
+        address user = makeAddr("user");
+        vm.deal(user, 1 ether);
+        _swapETHToUSDCExactOut(user, 100 * 1e6);
+      
+        assertEq(IERC20(aip).balanceOf(user), 0);
+
+        uint256 amount = 100 * 1e6;
+
+        vm.startPrank(user);
+        IERC20(usdc).approve(address(distributor), amount);
+        _distributeERC20("test-aero", user, amount, usdc, address(0), _buildMockMinAmountsOut(2), block.timestamp);
+
+        assertEq(IERC20(usdc).balanceOf(user), 0);
+        assertGt(IERC20(aip).balanceOf(user), 0);
+        assertEq(address(distributor).balance, 0);
     }
 
     function test_canSwapETHToERC20WithUniV4() public {
@@ -2039,5 +2112,3 @@ contract MockEscrow {
         value = msg.value;
     }
 }
-
-// Upgrade mock removed for non-upgradeable contract

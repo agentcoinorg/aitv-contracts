@@ -12,8 +12,11 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {IBurnable} from "./interfaces/IBurnable.sol";
 import {UniSwapper} from "./libraries/UniSwapper.sol";
+import {AerodromeSwapper} from "./libraries/AerodromeSwapper.sol";
 import {PoolConfig} from "./types/PoolConfig.sol";
 import {UniswapVersion} from "./types/UniswapVersion.sol";
+import {AerodromeConfig, AerodromeProposal} from "./types/AerodromeConfig.sol";
+import {IAerodromeRouter} from "./interfaces/IAerodromeRouter.sol";
 
 enum ActionType {
     Burn,
@@ -113,6 +116,20 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
         int24 tickSpacing,
         UniswapVersion version
     );
+    event AerodromeConfigProposed(
+        uint256 proposalId,
+        bytes32 key,
+        address indexed tokenA,
+        address indexed tokenB,
+        bool stable
+    );
+    event AerodromeConfigSet(
+        uint256 proposalId,
+        bytes32 key,
+        address indexed tokenA,
+        address indexed tokenB,
+        bool stable
+    );
     event DistributionAdded(uint256 indexed distributionId, address indexed sender);
     event DistributionIdSet(bytes32 indexed distributionName, uint256 indexed distributionId);
     event Distribution(
@@ -126,11 +143,14 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
     
     IUniversalRouter public uniswapUniversalRouter;
     IPermit2 public permit2;
+    IAerodromeRouter public aerodromeRouter;
     address public weth;
 
     mapping(bytes32 distributionName => uint256 distributionId) internal distributionNameToId;
     PoolConfig[] internal poolProposals;
     mapping(bytes32 key => PoolConfig config) internal pools;
+    AerodromeProposal[] internal aerodromeProposals;
+    mapping(bytes32 key => AerodromeConfig config) internal aerodromePools;
     mapping(uint256 distributionId => bytes distribution) internal distributions;
     uint256 internal lastDistributionId;
     
@@ -143,15 +163,17 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
         address _owner,
         IUniversalRouter _uniswapUniversalRouter,
         IPermit2 _permit2,
-        address _weth
+        address _weth,
+        IAerodromeRouter _aerodromeRouter
     ) Ownable(_owner) {
-        if (address(_uniswapUniversalRouter) == address(0) || address(_permit2) == address(0) || _weth == address(0)) {
+        if (address(_uniswapUniversalRouter) == address(0) || address(_permit2) == address(0) || _weth == address(0) || address(_aerodromeRouter) == address(0)) {
             revert ZeroAddressNotAllowed();
         }
 
         uniswapUniversalRouter = _uniswapUniversalRouter;
         permit2 = _permit2;
         weth = _weth;
+        aerodromeRouter = _aerodromeRouter;
     }
 
     /// @notice Adds a distribution to the contract
@@ -255,6 +277,37 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
             config.poolKey.tickSpacing,
             config.version
         );
+    }
+
+    /// @notice Proposes an Aerodrome route config
+    /// @param _proposal The proposed Aerodrome config
+    /// @return id The id of the Aerodrome config
+    function proposeAerodromeConfig(AerodromeProposal calldata _proposal) external returns (uint256) {
+        if (_proposal.tokenA == address(0) || _proposal.tokenB == address(0)) {
+            revert ZeroAddressNotAllowed();
+        }
+        aerodromeProposals.push(_proposal);
+        uint256 id = aerodromeProposals.length - 1;
+        bytes32 key = _getSwapPairKey(_proposal.tokenA, _proposal.tokenB);
+        emit AerodromeConfigProposed(id, key, _proposal.tokenA, _proposal.tokenB, _proposal.stable);
+        return id;
+    }
+
+    /// @notice Sets the Aerodrome route config
+    /// @param _proposalId The id of the Aerodrome config proposal
+    function setAerodromeConfig(uint256 _proposalId) external onlyOwner {
+        AerodromeProposal memory p = aerodromeProposals[_proposalId];
+        bytes32 key = _getSwapPairKey(p.tokenA, p.tokenB);
+        aerodromePools[key] = AerodromeConfig({stable: p.stable, exists: true});
+        emit AerodromeConfigSet(_proposalId, key, p.tokenA, p.tokenB, p.stable);
+    }
+
+    /// @notice Gets the Aerodrome config for a given token pair
+    /// @param _tokenA The address of the first token
+    /// @param _tokenB The address of the second token
+    /// @return config The Aerodrome config
+    function getAerodromeConfig(address _tokenA, address _tokenB) external view returns (AerodromeConfig memory) {
+        return aerodromePools[_getSwapPairKey(_tokenA, _tokenB)];
     }
 
     /// @notice Gets the pool config for a given pool
@@ -585,30 +638,76 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
             _swapWETHToETH(_actionTotalAmount, address(this), weth);
             outAmount = _actionTotalAmount;
         } else {
-            PoolConfig memory poolConfig = pools[_getSwapPairKey(_paymentToken, _action.token)];
-            if (poolConfig.poolKey.currency0 == Currency.wrap(address(0)) && poolConfig.poolKey.currency1 == Currency.wrap(address(0))) {
-                revert PoolConfigNotFound(_paymentToken, _action.token);
-            }
-            if (_ctx.minAmountsOutIndex >= _minAmountsOut.length || _minAmountsOut[_ctx.minAmountsOutIndex] == 0) {
-                revert MinAmountOutNotSet(_ctx.minAmountsOutIndex);
-            }
+            bytes32 pairKey = _getSwapPairKey(_paymentToken, _action.token);
+            PoolConfig memory poolConfig = pools[pairKey];
+            uint128 minOut = _getMinOut(_ctx, _minAmountsOut);
 
-            outAmount = UniSwapper.swapExactIn(
-                address(this),
-                owner(),
-                poolConfig,
-                _paymentToken,
-                _action.token,
-                _actionTotalAmount,
-                uint128(_minAmountsOut[_ctx.minAmountsOutIndex]),
-                _ctx.deadline,
-                uniswapUniversalRouter,
-                permit2
-            );
+            if (_poolConfigExists(poolConfig)) {
+                outAmount = _uniExactIn(poolConfig, _paymentToken, _action.token, _actionTotalAmount, minOut, _ctx.deadline);
+            } else {
+                AerodromeConfig memory aero = aerodromePools[pairKey];
+                if (!aero.exists) {
+                    revert PoolConfigNotFound(_paymentToken, _action.token);
+                }
+                outAmount = _aeroExactIn(aero, _paymentToken, _action.token, _actionTotalAmount, minOut, _ctx.deadline);
+            }
             ++_ctx.minAmountsOutIndex; 
         }
 
         return outAmount;
+    }
+
+    function _uniExactIn(
+        PoolConfig memory _poolConfig,
+        address _tokenIn,
+        address _tokenOut,
+        uint256 _amountIn,
+        uint128 _minOut,
+        uint256 _deadline
+    ) internal returns (uint256) {
+        return UniSwapper.swapExactIn(
+            address(this),
+            owner(),
+            _poolConfig,
+            _tokenIn,
+            _tokenOut,
+            _amountIn,
+            _minOut,
+            _deadline,
+            uniswapUniversalRouter,
+            permit2
+        );
+    }
+
+    function _aeroExactIn(
+        AerodromeConfig memory _aero,
+        address _tokenIn,
+        address _tokenOut,
+        uint256 _amountIn,
+        uint128 _minOut,
+        uint256 _deadline
+    ) internal returns (uint256) {
+        return AerodromeSwapper.swapExactIn(
+            address(this),
+            address(aerodromeRouter),
+            _tokenIn,
+            _tokenOut,
+            _amountIn,
+            _minOut,
+            _aero.stable,
+            _deadline
+        );
+    }
+
+    function _poolConfigExists(PoolConfig memory _pc) internal pure returns (bool) {
+        return !(Currency.unwrap(_pc.poolKey.currency0) == address(0) && Currency.unwrap(_pc.poolKey.currency1) == address(0));
+    }
+
+    function _getMinOut(BatchContext memory _ctx, uint256[] calldata _minAmountsOut) internal pure returns (uint128) {
+        if (_ctx.minAmountsOutIndex >= _minAmountsOut.length || _minAmountsOut[_ctx.minAmountsOutIndex] == 0) {
+            revert MinAmountOutNotSet(_ctx.minAmountsOutIndex);
+        }
+        return uint128(_minAmountsOut[_ctx.minAmountsOutIndex]);
     }
 
     /// @notice Helper to distribute a total amount proportionally among beneficiaries.
