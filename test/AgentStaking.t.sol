@@ -434,6 +434,7 @@ contract AgentStakingTest is Test {
         vm.startPrank(user);
         token.approve(address(staking), amount);
         staking.stake(amount);
+        assertEq(staking.getStakedAmount(user), amount);
 
         address newImplementation = address(new AgentStakingUnlock());
 
@@ -450,7 +451,7 @@ contract AgentStakingTest is Test {
         assertEq(staking.getStakedAmount(user), 0);
         assertEq(token.balanceOf(user), 0);
 
-        vm.warp(block.timestamp + 1 days);
+        vm.warp(block.timestamp + 1 days + 1 minutes);
         
         staking.claim(1, user);
 
