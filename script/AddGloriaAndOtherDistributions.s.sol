@@ -20,16 +20,16 @@ contract AddGloriaAndOtherDistributions is Script {
     address aitvTokenAddr = vm.envAddress("AITV_TOKEN_BASE");
     address gloriaTokenAddr = 0x3B313f5615Bbd6b200C71f84eC2f677B94DF8674;
     address eolasTokenAddr = 0xF878e27aFB649744EEC3c5c0d03bc9335703CFE3;
-    address nimpetTokenAddr = 0x2a06A17CBC6d0032Cac2c6696DA90f29D39a1a29;
+    address sprotoTokenAddr = 0x2a06A17CBC6d0032Cac2c6696DA90f29D39a1a29;
     address pettbroTokenAddr = 0x02D4f76656C2B4f58430e91f8ac74896c9281Cb9;
 
     function run() public {
         proposeGloriaPoolConfig();
         proposeEolasPoolConfig();
-        proposeNimpetPoolConfig();
+        proposeSprotoPoolConfig();
         deployGloriaDistribution();
         deployEolasDistribution();
-        deployNimpetDistribution();
+        deploySprotoDistribution();
     }
 
     function proposeGloriaPoolConfig() public returns (uint256) {
@@ -137,15 +137,15 @@ contract AddGloriaAndOtherDistributions is Script {
         return distributionId;
     }
 
-    function proposeNimpetPoolConfig() public returns (uint256) {
+    function proposeSprotoPoolConfig() public returns (uint256) {
         TokenDistributor distributor = TokenDistributor(payable(distributorAddr));
 
-        // Nimpet => USDC - Uniswap V3
+        // Sproto => USDC - Uniswap V3
         vm.startBroadcast();
         uint256 configId = distributor.proposePoolConfig(
             PoolConfig({
                 poolKey: PoolKey({
-                    currency0: Currency.wrap(nimpetTokenAddr),
+                    currency0: Currency.wrap(sprotoTokenAddr),
                     currency1: Currency.wrap(usdc),
                     fee: 10000,
                     tickSpacing: 0,
@@ -156,24 +156,24 @@ contract AddGloriaAndOtherDistributions is Script {
         );
         
         vm.stopBroadcast();
-        console.log("Nimpet => USDC Pool config proposed, ID: %s", configId);
+        console.log("Sproto => USDC Pool config proposed, ID: %s", configId);
 
         return configId;
     }
 
-    function deployNimpetDistribution() public returns (uint256) {
+    function deploySprotoDistribution() public returns (uint256) {
         TokenDistributor distributor = TokenDistributor(payable(distributorAddr));
 
         Action[] memory actions1 = new DistributionBuilder()
             .buy(2_000, aitvTokenAddr, address(0))
-            .buy(8_000, nimpetTokenAddr, address(0))
+            .buy(8_000, sprotoTokenAddr, address(0))
             .build();
 
         vm.startBroadcast();
         uint256 distributionId = distributor.addDistribution(actions1);
         vm.stopBroadcast();
 
-        console.log("TokenDistributor (Nimpet) distribution added, ID: %s", distributionId);
+        console.log("TokenDistributor (Sproto) distribution added, ID: %s", distributionId);
     
         return distributionId;
     }

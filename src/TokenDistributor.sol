@@ -17,6 +17,9 @@ import {PoolConfig} from "./types/PoolConfig.sol";
 import {UniswapVersion} from "./types/UniswapVersion.sol";
 import {AerodromeConfig, AerodromeProposal} from "./types/AerodromeConfig.sol";
 import {IAerodromeRouter} from "./interfaces/IAerodromeRouter.sol";
+import {IPancakeSmartRouter} from "./interfaces/IPancakeSmartRouter.sol";
+import {PancakeConfig, PancakeProposal} from "./types/PancakeConfig.sol";
+import {PancakeSwapper} from "./libraries/PancakeSwapper.sol";
 
 enum ActionType {
     Burn,
@@ -130,6 +133,18 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
         address indexed tokenB,
         bool stable
     );
+    event PancakeConfigProposed(
+        uint256 proposalId,
+        bytes32 key,
+        address indexed tokenA,
+        address indexed tokenB
+    );
+    event PancakeConfigSet(
+        uint256 proposalId,
+        bytes32 key,
+        address indexed tokenA,
+        address indexed tokenB
+    );
     event DistributionAdded(uint256 indexed distributionId, address indexed sender);
     event DistributionIdSet(bytes32 indexed distributionName, uint256 indexed distributionId);
     event Distribution(
@@ -144,6 +159,7 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
     IUniversalRouter public uniswapUniversalRouter;
     IPermit2 public permit2;
     IAerodromeRouter public aerodromeRouter;
+    IPancakeSmartRouter public pancakeSmartRouter;
     address public weth;
 
     mapping(bytes32 distributionName => uint256 distributionId) internal distributionNameToId;
@@ -151,6 +167,8 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
     mapping(bytes32 key => PoolConfig config) internal pools;
     AerodromeProposal[] internal aerodromeProposals;
     mapping(bytes32 key => AerodromeConfig config) internal aerodromePools;
+    PancakeProposal[] internal pancakeProposals;
+    mapping(bytes32 key => PancakeConfig config) internal pancakePools;
     mapping(uint256 distributionId => bytes distribution) internal distributions;
     uint256 internal lastDistributionId;
     
@@ -164,9 +182,10 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
         IUniversalRouter _uniswapUniversalRouter,
         IPermit2 _permit2,
         address _weth,
-        IAerodromeRouter _aerodromeRouter
+        IAerodromeRouter _aerodromeRouter,
+        IPancakeSmartRouter _pancakeSmartRouter
     ) Ownable(_owner) {
-        if (address(_uniswapUniversalRouter) == address(0) || address(_permit2) == address(0) || _weth == address(0) || address(_aerodromeRouter) == address(0)) {
+        if (address(_uniswapUniversalRouter) == address(0) || address(_permit2) == address(0) || _weth == address(0) || address(_aerodromeRouter) == address(0) || address(_pancakeSmartRouter) == address(0)) {
             revert ZeroAddressNotAllowed();
         }
 
@@ -174,6 +193,7 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
         permit2 = _permit2;
         weth = _weth;
         aerodromeRouter = _aerodromeRouter;
+        pancakeSmartRouter = _pancakeSmartRouter;
     }
 
     /// @notice Adds a distribution to the contract
@@ -308,6 +328,34 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
     /// @return config The Aerodrome config
     function getAerodromeConfig(address _tokenA, address _tokenB) external view returns (AerodromeConfig memory) {
         return aerodromePools[_getSwapPairKey(_tokenA, _tokenB)];
+    }
+
+    /// @notice Proposes a PancakeSwap route config
+    /// @param _proposal The proposed Pancake config
+    /// @return id The id of the proposal
+    function proposePancakeConfig(PancakeProposal calldata _proposal) external returns (uint256) {
+        if (_proposal.tokenA == address(0) || _proposal.tokenB == address(0)) {
+            revert ZeroAddressNotAllowed();
+        }
+        pancakeProposals.push(_proposal);
+        uint256 id = pancakeProposals.length - 1;
+        bytes32 key = _getSwapPairKey(_proposal.tokenA, _proposal.tokenB);
+        emit PancakeConfigProposed(id, key, _proposal.tokenA, _proposal.tokenB);
+        return id;
+    }
+
+    /// @notice Sets the PancakeSwap route config
+    /// @param _proposalId The id of the Pancake config proposal
+    function setPancakeConfig(uint256 _proposalId) external onlyOwner {
+        PancakeProposal memory p = pancakeProposals[_proposalId];
+        bytes32 key = _getSwapPairKey(p.tokenA, p.tokenB);
+        pancakePools[key] = PancakeConfig({fee: p.fee, exists: true});
+        emit PancakeConfigSet(_proposalId, key, p.tokenA, p.tokenB);
+    }
+
+    /// @notice Gets the Pancake config for a given token pair
+    function getPancakeConfig(address _tokenA, address _tokenB) external view returns (PancakeConfig memory) {
+        return pancakePools[_getSwapPairKey(_tokenA, _tokenB)];
     }
 
     /// @notice Gets the pool config for a given pool
@@ -646,10 +694,15 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
                 outAmount = _uniExactIn(poolConfig, _paymentToken, _action.token, _actionTotalAmount, minOut, _ctx.deadline);
             } else {
                 AerodromeConfig memory aero = aerodromePools[pairKey];
-                if (!aero.exists) {
-                    revert PoolConfigNotFound(_paymentToken, _action.token);
+                if (aero.exists) {
+                    outAmount = _aeroExactIn(aero, _paymentToken, _action.token, _actionTotalAmount, minOut, _ctx.deadline);
+                } else {
+                    PancakeConfig memory cake = pancakePools[pairKey];
+                    if (!cake.exists) {
+                        revert PoolConfigNotFound(_paymentToken, _action.token);
+                    }
+                    outAmount = _pancakeExactIn(_paymentToken, _action.token, _actionTotalAmount, minOut, _ctx.deadline);
                 }
-                outAmount = _aeroExactIn(aero, _paymentToken, _action.token, _actionTotalAmount, minOut, _ctx.deadline);
             }
             ++_ctx.minAmountsOutIndex; 
         }
@@ -696,6 +749,28 @@ contract TokenDistributor is Ownable2Step, ReentrancyGuard {
             _minOut,
             _aero.stable,
             _deadline
+        );
+    }
+
+    function _pancakeExactIn(
+        address _tokenIn,
+        address _tokenOut,
+        uint256 _amountIn,
+        uint128 _minOut,
+        uint256 _deadline
+    ) internal returns (uint256) {
+        bytes32 pairKey = _getSwapPairKey(_tokenIn, _tokenOut);
+        PancakeConfig memory cake = pancakePools[pairKey];
+        return PancakeSwapper.swapExactIn(
+            address(this),
+            pancakeSmartRouter,
+            _tokenIn,
+            _tokenOut,
+            _amountIn,
+            _minOut,
+            _deadline,
+            cake,
+            weth
         );
     }
 

@@ -52,6 +52,7 @@ jobs:
         id: test
         env:
           BASE_RPC_URL: "${{ secrets.BASE_RPC_URL }}"
+          BSC_RPC_URL: "${{ secrets.BSC_RPC_URL }}"
           BASE_UNISWAP_ROUTER: "${{ vars.BASE_UNISWAP_ROUTER }}"
           BASE_POOL_MANAGER: "${{ vars.BASE_POOL_MANAGER }}"
           BASE_POSITION_MANAGER: "${{ vars.BASE_POSITION_MANAGER }}"
@@ -60,3 +61,5 @@ jobs:
           PERMIT2: "${{ vars.PERMIT2 }}"
           WETH: "${{ vars.WETH }}"
           AERODROME_ROUTER: "${{ vars.AERODROME_ROUTER }}"
+          PANCAKE_SMART_ROUTER: "${{ vars.PANCAKE_SMART_ROUTER }}"
+          PANCAKE_SMART_ROUTER_BSC: "${{ vars.PANCAKE_SMART_ROUTER_BSC }}"

@@ -6,6 +6,7 @@ import {IUniversalRouter} from "@uniswap/universal-router/src/interfaces/IUniver
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IAerodromeRouter} from "../src/interfaces/IAerodromeRouter.sol";
+import {IPancakeSmartRouter} from "../src/interfaces/IPancakeSmartRouter.sol";
 import {TokenDistributor} from "../src/TokenDistributor.sol";
 
 contract DeployTokenDistributorScript is Script {
@@ -15,6 +16,7 @@ contract DeployTokenDistributorScript is Script {
         address permit2 = vm.envAddress("PERMIT2");
         address weth = vm.envAddress("WETH");
         address aerodromeRouter = vm.envAddress("AERODROME_ROUTER");
+        address pancakeSmartRouter = vm.envAddress("PANCAKE_SMART_ROUTER");
 
         vm.startBroadcast();
         TokenDistributor distributor = new TokenDistributor(
@@ -22,7 +24,8 @@ contract DeployTokenDistributorScript is Script {
             IUniversalRouter(uniswapUniversalRouter),
             IPermit2(permit2),
             weth,
-            IAerodromeRouter(aerodromeRouter)
+            IAerodromeRouter(aerodromeRouter),
+            IPancakeSmartRouter(pancakeSmartRouter)
         );
         vm.stopBroadcast();
 
@@ -33,5 +36,6 @@ contract DeployTokenDistributorScript is Script {
         require(permit2 == address(distributor.permit2()), "Permit2 mismatch");
         require(weth == address(distributor.weth()), "WETH mismatch");
         require(aerodromeRouter == address(distributor.aerodromeRouter()), "AerodromeRouter mismatch");
+        require(pancakeSmartRouter == address(distributor.pancakeSmartRouter()), "PancakeSmartRouter mismatch");
     }
 }

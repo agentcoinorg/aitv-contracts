@@ -22,6 +22,8 @@ import {PoolConfig} from "../src/types/PoolConfig.sol";
 import {DistributionBuilder} from "../src/DistributionBuilder.sol";
 import {AerodromeProposal} from "../src/types/AerodromeConfig.sol";
 import {IAerodromeRouter} from "../src/interfaces/IAerodromeRouter.sol";
+import {PancakeProposal} from "../src/types/PancakeConfig.sol";
+import {IPancakeSmartRouter} from "../src/interfaces/IPancakeSmartRouter.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -34,6 +36,7 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
     address usdt = 0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2;
     address ussi = 0x3a46ed8FCeb6eF1ADA2E4600A522AE7e24D2Ed18;
     address aerodromeRouter = vm.envAddress("AERODROME_ROUTER");
+    address pancakeSmartRouter = vm.envAddress("PANCAKE_SMART_ROUTER");
 
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"));
@@ -45,7 +48,8 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
             IUniversalRouter(uniswapUniversalRouter),
             IPermit2(permit2),
             weth,
-            IAerodromeRouter(aerodromeRouter)
+            IAerodromeRouter(aerodromeRouter),
+            IPancakeSmartRouter(pancakeSmartRouter)
         );
     }
 
@@ -1230,6 +1234,132 @@ contract TokenDistributorTest is AgentFactoryTestUtils {
         assertEq(address(distributor).balance, 0);
         assertEq(IERC20(usdc).balanceOf(address(distributor)), 0);
         assertEq(IERC20(usdt).balanceOf(address(distributor)), 0);
+    }
+
+    function test_canSwapERC20ToERC20WithPancake() public {
+        address recipient = makeAddr("recipient");
+
+        vm.startPrank(owner);
+
+        // Configure Pancake route for USDC -> WETH (more liquid across routers)
+        uint256 cakeCfgId = distributor.proposePancakeConfig(
+            PancakeProposal({
+                tokenA: usdc,
+                tokenB: weth,
+                fee: 100
+            })
+        );
+        distributor.setPancakeConfig(cakeCfgId);
+
+        uint256 distId = distributor.addDistribution(
+            new DistributionBuilder()
+                .buy(
+                    10000,
+                    weth,
+                    recipient
+                )
+                .build()
+        );
+        distributor.setDistributionId("test-cake", distId);
+
+        vm.stopPrank();
+
+        address user = makeAddr("user");
+
+        uint256 amount = 100 * 1e6;
+        vm.deal(user, 1 ether);
+
+        _swapETHToUSDCExactOut(user, amount);
+
+        assertEq(IERC20(usdc).balanceOf(user), amount);
+
+        vm.startPrank(user);
+
+        IERC20(usdc).approve(address(distributor), amount);
+        _distributeERC20("test-cake", user, amount, usdc, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+
+        assertGt(user.balance, 0 ether);
+        assertLt(user.balance, 1 ether);
+        assertEq(IERC20(usdc).balanceOf(user), 0);
+        assertEq(IERC20(usdc).balanceOf(recipient), 0);
+        assertEq(IERC20(weth).balanceOf(user), 0);
+        assertGt(IERC20(weth).balanceOf(recipient), 0);
+
+        assertEq(address(distributor).balance, 0);
+        assertEq(IERC20(usdc).balanceOf(address(distributor)), 0);
+        assertEq(IERC20(weth).balanceOf(address(distributor)), 0);
+    }
+
+    function test_canSwapUSDTToPUBLICWithPancakeOnBSC() public {
+        // Fork BSC for PUBLIC token swap via Pancake
+        uint256 bscFork = vm.createFork(vm.envString("BSC_RPC_URL"));
+        vm.selectFork(bscFork);
+
+        // BSC mainnet addresses
+        address WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
+        address USDT = 0x55d398326f99059fF775485246999027B3197955;
+        address PUBLIC = 0x87aa6aEb62ff128aAA96E275d7B24cd12a72ABa1;
+        address pancakeRouter = vm.envAddress("PANCAKE_SMART_ROUTER_BSC");
+        address permit2Addr = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
+        // Re-instantiate distributor for BSC context (only Pancake will be used)
+        distributor = new TokenDistributor(
+            owner,
+            IUniversalRouter(address(0x1)),
+            IPermit2(permit2Addr),
+            WBNB,
+            IAerodromeRouter(address(0x1)),
+            IPancakeSmartRouter(pancakeRouter)
+        );
+
+        // Configure Pancake route for USDT <-> PUBLIC via v3 (fee=100)
+        vm.startPrank(owner);
+        uint256 cakeCfgId = distributor.proposePancakeConfig(
+            PancakeProposal({ tokenA: USDT, tokenB: PUBLIC, fee: 100 })
+        );
+        distributor.setPancakeConfig(cakeCfgId);
+
+        uint256 distId = distributor.addDistribution(
+            new DistributionBuilder()
+                .buy(10000, PUBLIC, address(0))
+                .build()
+        );
+        distributor.setDistributionId("public-cake-bsc", distId);
+        vm.stopPrank();
+
+        // User: mint WBNB from BNB, swap WBNB -> USDT via Pancake router, then swap USDT -> PUBLIC via distributor
+        address user = makeAddr("user-bsc");
+        uint256 amountWBNB = 0.2 ether;
+        vm.deal(user, 1 ether);
+
+        vm.startPrank(user);
+        IWETH(WBNB).deposit{value: amountWBNB}();
+        assertEq(IERC20(WBNB).balanceOf(user), amountWBNB);
+
+        // Swap WBNB -> USDT using Pancake Smart Router (v2-style path)
+        IERC20(WBNB).approve(pancakeRouter, amountWBNB);
+        address[] memory path = new address[](2);
+        path[0] = WBNB;
+        path[1] = USDT;
+        uint256 usdtAmount = IPancakeSmartRouter(pancakeRouter).swapExactTokensForTokens(
+            amountWBNB,
+            0,
+            path,
+            user
+        );
+
+        assertEq(IERC20(WBNB).balanceOf(user), 0);
+        assertGt(IERC20(USDT).balanceOf(user), 0);
+
+        IERC20(USDT).approve(address(distributor), usdtAmount);
+        _distributeERC20("public-cake-bsc", user, usdtAmount, USDT, address(0), _buildMockMinAmountsOut(1), block.timestamp);
+
+        // User should have PUBLIC > 0 and no residuals in distributor
+        assertEq(IERC20(USDT).balanceOf(user), 0);
+        assertGt(IERC20(PUBLIC).balanceOf(user), 0);
+        assertEq(IERC20(USDT).balanceOf(address(distributor)), 0);
+        assertEq(IERC20(PUBLIC).balanceOf(address(distributor)), 0);
+        assertEq(address(distributor).balance, 0);
     }
 
     function test_canSwapUSDCToAIPWithAerodrome() public {
