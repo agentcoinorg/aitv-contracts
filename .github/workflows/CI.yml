@@ -59,3 +59,4 @@ jobs:
           CREATE2_DEPLOYER: "${{ vars.CREATE2_DEPLOYER }}"
           PERMIT2: "${{ vars.PERMIT2 }}"
           WETH: "${{ vars.WETH }}"
+          AERODROME_ROUTER: "${{ vars.AERODROME_ROUTER }}"
