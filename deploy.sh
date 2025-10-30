@@ -73,6 +73,9 @@ case "$NETWORK" in
     "ethereum")
         RPC_URL="$ETHEREUM_RPC_URL"
         ;;
+    "bsc")
+        RPC_URL="$BSC_RPC_URL"
+        ;;
     *)
         echo "Unsupported network: $NETWORK"
         exit 1
