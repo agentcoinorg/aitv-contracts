@@ -69,7 +69,7 @@ contract AddNimpetDistribution is Script {
         TokenDistributor distributor = TokenDistributor(payable(distributorAddr));
         vm.startBroadcast();
         uint256 cfgId = distributor.proposePancakeConfig(
-            PancakeProposal({ tokenA: wbnb, tokenB: aitvTokenAddr, fee: 100 })
+            PancakeProposal({ tokenA: wbnb, tokenB: aitvTokenAddr, fee: 2500 })
         );
         distributor.setPancakeConfig(cfgId);
         vm.stopBroadcast();
