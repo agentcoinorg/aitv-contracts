@@ -3,9 +3,9 @@ pragma solidity 0.8.28;
 
 import {AITVERC721Base} from "./AITVERC721Base.sol";
 
-/// @title AITVSeason1RewardsBatchDeployer
+/// @title AITVSeasonRewardsBatchDeployer
 /// @notice Deploys the S1R NFT, allows parameterized, chunked minting with padded URIs, then transfers ownership
-contract AITVSeason1RewardsBatchDeployer {
+contract AITVSeasonRewardsBatchDeployer {
     AITVERC721Base public immutable nft;
     address public immutable recipient;
     address public immutable finalOwner;
