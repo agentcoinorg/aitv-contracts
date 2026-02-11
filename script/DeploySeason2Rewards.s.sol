@@ -5,18 +5,18 @@ import {Script, console} from "forge-std/Script.sol";
 import {AITVERC721Base} from "../src/AITVERC721Base.sol";
 import {AITVSeasonRewardsBatchDeployer} from "../src/AITVSeasonRewardsBatchDeployer.sol";
 
-contract DeploySeason1RewardsScript is Script {
+contract DeploySeason2RewardsScript is Script {
     function run() public {
-        string memory baseURI = vm.envString("S1R_BASE_URI");
-        address owner = vm.envAddress("S1R_OWNER");
-        address recipient = vm.envAddress("S1R_MINT_RECIPIENT");
-        uint256 totalToMint = vm.envUint("S1R_TOTAL");
-        uint256 batchSize = vm.envUint("S1R_BATCH_SIZE");
+        string memory baseURI = vm.envString("S2R_BASE_URI");
+        address owner = vm.envAddress("S2R_OWNER");
+        address recipient = vm.envAddress("S2R_MINT_RECIPIENT");
+        uint256 totalToMint = vm.envUint("S2R_TOTAL");
+        uint256 batchSize = vm.envUint("S2R_BATCH_SIZE");
 
         vm.startBroadcast();
         AITVSeasonRewardsBatchDeployer deployer = new AITVSeasonRewardsBatchDeployer(
-            "AITV Season 1 Badges",
-            "AITVS1B",
+            "AITV Season 2 Badges",
+            "AITVS2B",
             baseURI,
             recipient,
             owner,
@@ -38,7 +38,7 @@ contract DeploySeason1RewardsScript is Script {
 
         AITVERC721Base nft = deployer.nft();
         console.log("Batch deployer deployed at %s", address(deployer));
-        console.log("AITV Season 1 Badges deployed at %s", address(nft));
+        console.log("AITV Season 2 Badges deployed at %s", address(nft));
         console.log("Minted %s tokens to %s across multiple transactions", totalMinted, recipient);
     }
 
